@@ -1,0 +1,9 @@
+backup/
+dataset/
+data/
+Data/
+log/
+results/
+**/__pycache__/
+.vscode/
+.git/
