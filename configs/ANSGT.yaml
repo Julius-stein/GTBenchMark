@@ -1,0 +1,62 @@
+out_dir: ./results/ogbn_arxiv
+metric_best: accuracy
+seed: 42
+dataset:
+  dir: /mnt/data2/duxin/.datasets
+  format: OGB
+  name: ogbn_arxiv
+  task: node
+  task_type: classification
+  task_entity: item
+  transductive: True
+  node_encoder: True
+  node_encoder_name: Raw
+  node_encoder_bn: False
+  edge_encoder: False
+  edge_encoder_name: none
+  edge_encoder_bn: False
+num_threads: 24
+num_workers: 18
+train:
+  mode: ANS_GT
+  sampler: neighbor
+  neighbor_sizes: [25,10] 
+  iter_per_epoch: -1
+  batch_size: 256
+  eval_period: 4
+  ckpt_period: 100
+  tqdm: True
+  persistent_workers: True
+  pin_memory: True
+  ans_weight_update : 2
+
+val:
+  sampler: neighbor
+  iter_per_epoch: -1
+  tqdm: True
+model:
+  type: ANS-GT
+  loss_fun: cross_entropy
+gt:
+  node_encoder_list: ['RawEncoder']
+  edge_encoder_list: []
+  attn_type: TorchFullAttention
+  layers: 3
+  attn_heads: 8
+  dim_hidden: 256  
+  dropout: 0.2     # global transformer dropout
+  attn_dropout: 0.2
+  batch_norm: False
+  layer_norm: True
+  residual: True
+gnn:
+  dropout: 0.2
+optim:
+  batch_accumulation: 32
+  clip_grad_norm: True
+  optimizer: adamW
+  weight_decay: 1e-5
+  base_lr: 0.0005
+  max_epoch: 5
+  scheduler: cosine_with_warmup
+  num_warmup_epochs: 5

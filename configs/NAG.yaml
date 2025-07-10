@@ -1,0 +1,60 @@
+out_dir: ./results/NAG/Amazon-Photo
+metric_best: accuracy
+seed: 42
+dataset:
+  dir: ./Data
+  format: PyG
+  name: Amazon-Photo
+  task: node
+  task_type: classification
+  split_mode: random
+  split: [0.6,0.2,0.2]
+  transductive: True
+  node_encoder: True
+  node_encoder_name: HopToTokenEncoder
+  hop: 3
+
+num_threads: 24
+num_workers: 16
+train:
+  mode: custom
+  sampler: full_batch
+  iter_per_epoch: -1
+  batch_size: 2000
+  eval_period: 4
+  tqdm: True
+  persistent_workers: True
+  pin_memory: True
+val:
+  sampler: full_batch
+  iter_per_epoch: -1
+  tqdm: True
+model:
+  type: NAGphormer
+  loss_fun: cross_entropy
+gt:
+
+  layer_type: NAGphormer_Layer
+  layers: 1
+  attn_heads: 8
+  dim_hidden: 128  
+  dropout: 0.1     # global transformer dropout
+  attn_dropout: 0.1
+  ffn_dim: 256
+
+optim:
+  batch_accumulation: 1
+  clip_grad_norm: True
+  optimizer: adamW
+  weight_decay: 1e-5
+  base_lr: 0.001
+  # lr_end: 0.0001
+  max_epoch: 2000
+  scheduler: polynomial_with_warmup
+  num_warmup_epochs: 400
+posenc_LapPE:
+  enable: True
+  dim_pe: 10
+  eigen:
+    max_freqs: 10         # 默认值
+    laplacian_norm: sym  # 默认值

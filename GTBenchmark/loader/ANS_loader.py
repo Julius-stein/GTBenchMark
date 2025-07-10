@@ -16,6 +16,10 @@ from torch_geometric.utils.undirected import is_undirected, to_undirected
 from torch_sparse import coalesce
 from ogb.nodeproppred import PygNodePropPredDataset
 from tqdm import tqdm
+from GTBenchmark.graphgym.config import cfg
+# from GTBenchmark.transform.coarse import coarsen
+
+
 
 
 def adj_normalize(mx):
@@ -69,18 +73,18 @@ def coarse_adj_normalize(adj):
     return adj
 
 
-def process_data(p=None):
-    name = 'ogbn_arxiv'
-    #dataset = Planetoid(root='./data/', name=name)
-    dataset = PygNodePropPredDataset(name='ogbn-arxiv')
+def ANS_process_data(dataset,p=None):
+
+    name = cfg.dataset.name
+    dataset_dir = cfg.dataset.dir+name
     data = dataset[0]
     adj = sp.coo_matrix((np.ones(data.edge_index.shape[1]), (data.edge_index[0], data.edge_index[1])),
                                 shape=(data.y.shape[0], data.y.shape[0]),
                                 dtype=np.float32)
     normalized_adj = adj_normalize(adj)
     column_normalized_adj = column_normalize(adj)
-    sp.save_npz('./dataset/'+name+'/normalized_adj.npz', normalized_adj)
-    sp.save_npz('./dataset/' + name + '/column_normalized_adj.npz', column_normalized_adj)
+    sp.save_npz(dataset_dir+'/normalized_adj.npz', normalized_adj)
+    sp.save_npz(dataset_dir+ '/column_normalized_adj.npz', column_normalized_adj)
     c = 0.15
     k1 = 15
     k2 = 0
@@ -88,9 +92,9 @@ def process_data(p=None):
     power_adj_list = [normalized_adj]
     for m in range(5):
         power_adj_list.append(power_adj_list[0]*power_adj_list[m])
-    torch.save(data.x, './dataset/' + name + '/x.pt')
-    torch.save(data.y, './dataset/' + name + '/y.pt')
-    torch.save(data.edge_index, './dataset/' + name + '/edge_index.pt')
+    torch.save(data.x, dataset_dir+ '/x.pt')
+    torch.save(data.y, dataset_dir + '/y.pt')
+    torch.save(data.edge_index, dataset_dir + '/edge_index.pt')
 
     #Sampling heuristics: 0,1,2,3
     eigen_adj = sp.eye(adj.shape[0])
@@ -182,21 +186,22 @@ def process_data(p=None):
             sub_data_list.append([attn_bias, feature_id, label])
         data_list.append(sub_data_list)
 
-    torch.save(data_list, './dataset/'+name+'/data.pt')
-    torch.save(feature, './dataset/'+name+'/feature.pt')
+    torch.save(data_list, dataset_dir+'/data.pt')
+    torch.save(feature, dataset_dir+'/feature.pt')
 
 
 def node_sampling(p=None):
     print('Sampling Nodes!')
-    name = 'cora'
-    edge_index = torch.load('./dataset/'+name+'/edge_index.pt')
-    data_x = torch.load('./dataset/'+name+'/x.pt')
-    data_y = torch.load('./dataset/'+name+'/y.pt')
+    name = cfg.dataset.name
+    dataset_dir = cfg.dataset.dir+name
+    edge_index = torch.load(dataset_dir+'/edge_index.pt')
+    data_x = torch.load(dataset_dir+'/x.pt')
+    data_y = torch.load(dataset_dir+'/y.pt')
     adj = sp.coo_matrix((np.ones(edge_index.shape[1]), (edge_index[0], edge_index[1])),
                                 shape=(data_y.shape[0], data_y.shape[0]),
                                 dtype=np.float32)
-    normalized_adj = sp.load_npz('./dataset/'+name+'/normalized_adj.npz')
-    column_normalized_adj = sp.load_npz('./dataset/' + name + '/column_normalized_adj.npz')
+    normalized_adj = sp.load_npz(dataset_dir+'/normalized_adj.npz')
+    column_normalized_adj = sp.load_npz(dataset_dir + '/column_normalized_adj.npz')
     c = 0.15
     k1 = 14
     k2 = 0
@@ -292,6 +297,6 @@ def node_sampling(p=None):
 if __name__ == '__main__':
     import time
     t=time.time()
-    process_data()
+    # ANS_process_data()
     print(time.time()-t)
 

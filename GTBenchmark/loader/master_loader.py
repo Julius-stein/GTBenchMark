@@ -31,7 +31,7 @@ from GTBenchmark.transform.posenc_stats import compute_posenc_stats
 from GTBenchmark.transform.transforms import (pre_transform_in_memory,
                                            typecast_x, concat_x_and_pos,
                                            clip_graphs_to_size)
-
+from GTBenchmark.loader.ANS_loader import ANS_process_data
 
 from torch_geometric.utils import (index_to_mask, to_undirected)
 from GTBenchmark.loader.split_generator import (prepare_splits,
@@ -233,6 +233,12 @@ def load_dataset_master(format, name, dataset_dir):
 
     log_loaded_dataset(dataset, format, name)
 
+    #ANS-GT预计算子图划分
+    if cfg.train.mode == "ANS_GT":
+        ANS_process_data(dataset)
+        
+
+
     # Precompute structural encodings
     if cfg.posenc_Hetero_Node2Vec.enable:
         pe_dir = osp.join(dataset_dir, name.replace('-', '_'), 'posenc')
@@ -306,7 +312,7 @@ def load_dataset_master(format, name, dataset_dir):
         for node_type in dataset.data.num_nodes_dict:
             dataset.data[node_type]['pestat_Hetero_DistMult'] = model[node_type]
             
-    print(dataset[0])
+    # print(dataset[0])
 
     # Precompute necessary statistics for positional encodings.
     pe_enabled_list = []

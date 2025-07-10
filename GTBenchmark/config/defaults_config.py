@@ -62,6 +62,9 @@ def extended_cfg(cfg):
     # RandomNodeLoader: number of partitions
     cfg.train.num_parts = 10
 
+    #ANS-GT settings
+    cfg.train.ans_weight_update = 10000
+
     # APPNP hyperparameter
     cfg.gnn.K = 10
     cfg.gnn.alpha = 0.1
