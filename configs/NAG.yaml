@@ -2,7 +2,7 @@ out_dir: ./results/NAG/Amazon-Photo
 metric_best: accuracy
 seed: 42
 dataset:
-  dir: ./Data
+  dir: /mnt/data2/duxin/.datasets
   format: PyG
   name: Amazon-Photo
   task: node

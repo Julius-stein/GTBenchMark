@@ -22,3 +22,6 @@ def dataset_cfg(cfg):
     cfg.dataset.infer_link_label = "None"
 
     cfg.dataset.rand_split = False
+
+    # NAG
+    cfg.dataset.hop = 3 

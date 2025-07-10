@@ -100,6 +100,16 @@ def graphormer_pre_processing(data, distance):
     return data
 
 
+
+def convert_to_single_emb(x, offset=512):
+    feature_num = x.size(1) if len(x.size()) > 1 else 1
+    feature_offset = 1 + \
+        torch.arange(0, feature_num * offset, offset, dtype=torch.long)
+    x = x + feature_offset.to(x.device)
+    return x
+
+
+
 class BiasEncoder(torch.nn.Module):
     def __init__(self, num_heads: int, num_spatial_types: int,
                  num_edge_types: int, use_graph_token: bool = True):
@@ -224,7 +234,7 @@ class NodeEncoder(torch.nn.Module):
         super().__init__()
         self.in_degree_encoder = torch.nn.Embedding(num_in_degree, embed_dim)
         self.out_degree_encoder = torch.nn.Embedding(num_out_degree, embed_dim)
-
+        self.linear = torch.nn.Linear(self.dim_in, embed_dim)
         self.use_graph_token = use_graph_token
         if self.use_graph_token:
             self.graph_token = torch.nn.Parameter(torch.zeros(1, embed_dim))
@@ -234,7 +244,8 @@ class NodeEncoder(torch.nn.Module):
     def forward(self, data):
         in_degree_encoding = self.in_degree_encoder(data.in_degrees)
         out_degree_encoding = self.out_degree_encoder(data.out_degrees)
-
+        data.x =  convert_to_single_emb(data.x, offset=512)
+        data.x = self.linear(data.x) 
         if data.x.size(1) > 0:
             data.x = data.x + in_degree_encoding + out_degree_encoding
         else:

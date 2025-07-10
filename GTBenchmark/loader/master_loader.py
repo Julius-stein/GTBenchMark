@@ -31,7 +31,7 @@ from GTBenchmark.transform.posenc_stats import compute_posenc_stats
 from GTBenchmark.transform.transforms import (pre_transform_in_memory,
                                            typecast_x, concat_x_and_pos,
                                            clip_graphs_to_size)
-from GTBenchmark.loader.ANS_loader import ANS_process_data
+
 
 from torch_geometric.utils import (index_to_mask, to_undirected)
 from GTBenchmark.loader.split_generator import (prepare_splits,
@@ -233,11 +233,9 @@ def load_dataset_master(format, name, dataset_dir):
 
     log_loaded_dataset(dataset, format, name)
 
-    #ANS-GT预计算子图划分
-    if cfg.train.mode == "ANS_GT":
-        ANS_process_data(dataset)
-        
-
+    #--------------------------------------#
+    # Deep breath positional Encoding below#
+    #--------------------------------------#
 
     # Precompute structural encodings
     if cfg.posenc_Hetero_Node2Vec.enable:
@@ -371,7 +369,7 @@ def load_dataset_master(format, name, dataset_dir):
             elapsed = time.perf_counter() - start
             timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
                       + f'{elapsed:.2f}'[-3:]
-            logging.info(f"Done! Took {timestr}")
+            logging.info(f"PE Done! Took {timestr}")
 
         # start = time.perf_counter()
         # logging.info(f"Precomputing Positional Encoding statistics: "
