@@ -265,15 +265,36 @@ class CustomLogger(Logger):
         return result
 
     def regression(self):
-        true, pred = torch.cat(self._true), torch.cat(self._pred)
+        # concat
+        true = torch.cat(self._true)
+        pred = torch.cat(self._pred)
+
+        # 保证 shape 对齐（若是 [N,1] -> [N]）
+        if true.ndim > 1 and true.size(-1) == 1:
+            true = true.view(-1)
+        if pred.ndim > 1 and pred.size(-1) == 1:
+            pred = pred.view(-1)
+
         reformat = lambda x: round(float(x), cfg.round)
+
+        mae_val = mean_absolute_error(true, pred)
+        r2_val = r2_score(true, pred, multioutput='uniform_average')
+
+        # Spearman 需要 numpy；确保在 CPU 上
+        true_np = true.detach().cpu().numpy()
+        pred_np = pred.detach().cpu().numpy()
+        spearman_val = eval_spearmanr(true_np, pred_np)['spearmanr']
+
+        # 新：不再使用 squared=False；自己开平方
+        mse_val = mean_squared_error(true, pred)         # 默认 squared=True
+        rmse_val = np.sqrt(mse_val)                   # Tensor -> 标量
+
         return {
-            'mae': reformat(mean_absolute_error(true, pred)),
-            'r2': reformat(r2_score(true, pred, multioutput='uniform_average')),
-            'spearmanr': reformat(eval_spearmanr(true.numpy(),
-                                                 pred.numpy())['spearmanr']),
-            'mse': reformat(mean_squared_error(true, pred)),
-            'rmse': reformat(mean_squared_error(true, pred, squared=False)),
+            'mae':       reformat(mae_val),
+            'r2':        reformat(r2_val),
+            'spearmanr': reformat(spearman_val),
+            'mse':       reformat(mse_val),
+            'rmse':      reformat(rmse_val),
         }
 
     def update_stats(self, true, pred, loss, lr, time_used, params,

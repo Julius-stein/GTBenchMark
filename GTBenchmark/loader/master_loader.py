@@ -33,12 +33,15 @@ from GTBenchmark.transform.transforms import (pre_transform_in_memory,
                                            clip_graphs_to_size)
 
 
+from torch_geometric.datasets import (Actor, GNNBenchmarkDataset, Planetoid,
+                                      TUDataset, WebKB, WikipediaNetwork, ZINC)
 from torch_geometric.utils import (index_to_mask, to_undirected)
 from GTBenchmark.loader.split_generator import (prepare_splits,
                                              set_dataset_splits)
 from GTBenchmark.loader.encoding_generator import (preprocess_Node2Vec, check_Node2Vec, load_Node2Vec,
                                                  preprocess_Metapath, check_Metapath, load_Metapath,\
                                                  preprocess_KGE, check_KGE, load_KGE)
+from GTBenchmark.loader.data_preprocess import hop2token
 
 
 def get_sparse_tensor(edge_index, num_nodes=None, num_src_nodes=None, num_dst_nodes=None, return_e_id=False):
@@ -196,6 +199,9 @@ def load_dataset_master(format, name, dataset_dir):
 
         elif pyg_dataset_id == 'PDNS':
             dataset = preformat_PDNS(dataset_dir)
+                
+        elif pyg_dataset_id == 'ZINC':
+            dataset = preformat_ZINC(dataset_dir, name)
         
         else:
             raise ValueError(f"Unexpected PyG Dataset identifier: {format}")
@@ -325,69 +331,81 @@ def load_dataset_master(format, name, dataset_dir):
                 logging.info(f"Parsed {pe_name} PE kernel times / steps: "
                              f"{pecfg.kernel.times}")
     if pe_enabled_list:
-        if 'LapPE' in pe_enabled_list:
-            start = time.perf_counter()
-            logging.info(f"Precomputing Positional Encoding statistics: "
-                         f"{pe_enabled_list} for all graphs...")
-            # Estimate directedness based on 10 graphs to save time.
-            is_undirected = all(d.is_undirected() for d in dataset[:10])
-            logging.info(f"  ...estimated to be undirected: {is_undirected}")
+        # if 'LapPE' in pe_enabled_list:
+        #     start = time.perf_counter()
+        #     logging.info(f"Precomputing Positional Encoding statistics: "
+        #                  f"{pe_enabled_list} for all graphs...")
+        #     # Estimate directedness based on 10 graphs to save time.
+        #     is_undirected = all(d.is_undirected() for d in dataset[:10])
+        #     logging.info(f"  ...estimated to be undirected: {is_undirected}")
 
-            pe_dir = osp.join(dataset_dir, 'LapPE')
-            file_path = osp.join(pe_dir, f'{dataset.name}.pt')
-            if not osp.exists(pe_dir) or not osp.exists(file_path):
-                from tqdm import tqdm
-                results = []
-                for i in tqdm(range(len(dataset)),
-                               mininterval=10,
-                               miniters=len(dataset)//20):
-                    data = compute_posenc_stats(dataset.get(i), 
-                                                pe_types=pe_enabled_list,
-                                                is_undirected=is_undirected,
-                                                cfg=cfg)
-                    results.append({'EigVals': data.EigVals, 'EigVecs': data.EigVecs})
-                if not osp.exists(pe_dir):
-                    os.makedirs(pe_dir)
-                torch.save(results, file_path)
+        #     pe_dir = osp.join(dataset_dir, 'LapPE')
+        #     file_path = osp.join(pe_dir, f'{dataset.name}.pt')
+        #     if not osp.exists(pe_dir) or not osp.exists(file_path):
+        #         from tqdm import tqdm
+        #         results = []
+        #         for i in tqdm(range(len(dataset)),
+        #                        mininterval=10,
+        #                        miniters=len(dataset)//20):
+        #             data = compute_posenc_stats(dataset.get(i), 
+        #                                         pe_types=pe_enabled_list,
+        #                                         is_undirected=is_undirected,
+        #                                         cfg=cfg)
+        #             results.append({'EigVals': data.EigVals, 'EigVecs': data.EigVecs})
+        #         if not osp.exists(pe_dir):
+        #             os.makedirs(pe_dir)
+        #         torch.save(results, file_path)
             
-            from tqdm import tqdm
-            results = torch.load(file_path)
-            data_list = []
-            for i in tqdm(range(len(dataset)),
-                        mininterval=10,
-                        miniters=len(dataset)//20):
-                data = dataset.get(i)
-                data.EigVals = results[i]['EigVals']
-                data.EigVecs = results[i]['EigVecs']
-                data_list.append(data)
-            data_list = list(filter(None, data_list))
+        #     from tqdm import tqdm
+        #     results = torch.load(file_path)
+        #     data_list = []
+        #     for i in tqdm(range(len(dataset)),
+        #                 mininterval=10,
+        #                 miniters=len(dataset)//20):
+        #         data = dataset.get(i)
+        #         data.EigVals = results[i]['EigVals']
+        #         data.EigVecs = results[i]['EigVecs']
+        #         data_list.append(data)
+        #     data_list = list(filter(None, data_list))
 
-            dataset._indices = None
-            dataset._data_list = data_list
-            dataset.data, dataset.slices = dataset.collate(data_list)
+        #     dataset._indices = None
+        #     dataset._data_list = data_list
+        #     dataset.data, dataset.slices = dataset.collate(data_list)
 
-            elapsed = time.perf_counter() - start
-            timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
-                      + f'{elapsed:.2f}'[-3:]
-            logging.info(f"PE Done! Took {timestr}")
+        #     elapsed = time.perf_counter() - start
+        #     timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+        #               + f'{elapsed:.2f}'[-3:]
+        #     logging.info(f"PE Done! Took {timestr}")
 
-        # start = time.perf_counter()
-        # logging.info(f"Precomputing Positional Encoding statistics: "
-        #              f"{pe_enabled_list} for all graphs...")
-        # # Estimate directedness based on 10 graphs to save time.
-        # is_undirected = all(d.is_undirected() for d in dataset[:10])
-        # logging.info(f"  ...estimated to be undirected: {is_undirected}")
-        # pre_transform_in_memory(dataset,
-        #                         partial(compute_posenc_stats,
-        #                                 pe_types=pe_enabled_list,
-        #                                 is_undirected=is_undirected,
-        #                                 cfg=cfg),
-        #                         show_progress=True
-        #                         )
-        # elapsed = time.perf_counter() - start
-        # timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
-        #           + f'{elapsed:.2f}'[-3:]
-        # logging.info(f"Done! Took {timestr}")
+        start = time.perf_counter()
+        logging.info(f"Precomputing Positional Encoding statistics: "
+                     f"{pe_enabled_list} for all graphs...")
+        # Estimate directedness based on 10 graphs to save time.
+        is_undirected = all(d.is_undirected() for d in dataset[:10])
+        logging.info(f"  ...estimated to be undirected: {is_undirected}")
+        pre_transform_in_memory(dataset,
+                                partial(compute_posenc_stats,
+                                        pe_types=pe_enabled_list,
+                                        is_undirected=is_undirected,
+                                        cfg=cfg),
+                                show_progress=True
+                                )
+        elapsed = time.perf_counter() - start
+        timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+                  + f'{elapsed:.2f}'[-3:]
+        logging.info(f"Done! Took {timestr}")
+
+
+#-------------------------#
+# Preprocess token choices#
+#-------------------------#
+    if cfg.dataset.preprocess in ["None","HopToToken"]:
+        if cfg.dataset.preprocess == "None":
+            pass
+        elif cfg.dataset.preprocess == "HopToToken":
+            dataset = hop2token(dataset)
+    else:
+        raise ValueError(f"Unexpect preprocess type {cfg.dataset.preprocess}.")
 
     # Set standard dataset train/val/test splits
     if hasattr(dataset, 'split_idxs'):
@@ -868,3 +886,21 @@ def join_dataset_splits(datasets):
     #     data['x'] = data['x'].to(torch.float16)
     #     assert data['name'] == name
     #     return self(**data)
+
+def preformat_ZINC(dataset_dir, name):
+    """Load and preformat ZINC datasets.
+
+    Args:
+        dataset_dir: path where to store the cached dataset
+        name: select 'subset' or 'full' version of ZINC
+
+    Returns:
+        PyG dataset object
+    """
+    if name not in ['subset', 'full']:
+        raise ValueError(f"Unexpected subset choice for ZINC dataset: {name}")
+    dataset = join_dataset_splits(
+        [ZINC(root=dataset_dir, subset=(name == 'subset'), split=split)
+         for split in ['train', 'val', 'test']]
+    )
+    return dataset

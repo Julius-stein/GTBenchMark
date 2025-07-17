@@ -52,11 +52,12 @@ class NAGphormer(nn.Module):
        
 
         batch.x = self.Linear1(batch.x)
+
         
         for enc_layer in self.convs:
             batch = enc_layer(batch)
         
-            
+     
         ### ReadOut ###
         x = batch.x 
         output = self.final_ln(x)

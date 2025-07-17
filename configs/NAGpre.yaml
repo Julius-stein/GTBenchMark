@@ -11,8 +11,8 @@ dataset:
   split: [0.6,0.2,0.2]
   transductive: True
   node_encoder: True
-  node_encoder_name: Hop2TokenEncoder
-  # preprocess: None
+  node_encoder_name: Raw
+  preprocess: HopToToken
   hop: 3
 
 num_threads: 24
@@ -31,16 +31,24 @@ val:
   iter_per_epoch: -1
   tqdm: True
 model:
-  type: NAGphormer
+  type: GTModel
   loss_fun: cross_entropy
 gt:
-  layer_type: NAGphormer_Layer
+  node_encoder_list: ['RawEncoder']
+  edge_encoder_list: []
   layers: 1
+  layer_type: Transformer
+  attn_type: GeneralAttention
   attn_heads: 8
   dim_hidden: 128  
   dropout: 0.1     # global transformer dropout
   attn_dropout: 0.1
+  head: NAGReadout
   ffn_dim: 256
+  act: gelu
+  layer_norm: True
+  batch_norm: False
+  residual: True
 
 optim:
   batch_accumulation: 1

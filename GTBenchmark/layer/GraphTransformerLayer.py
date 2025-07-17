@@ -20,10 +20,15 @@ class GraphTransformerLayer(nn.Module):
         self.residual = cfg.gt.residual
         self.layer_norm = cfg.gt.layer_norm        
         self.batch_norm = cfg.gt.batch_norm
-        
-        self.attention = register.layer_dict[cfg.gt.attn_type](dim_h, self.num_heads)
-        
+        self.act = register.act_dict[cfg.gt.act]
 
+        
+        self.ffn_dim = cfg.gt.ffn_dim if cfg.gt.ffn_dim!=0 else dim_h*2
+        
+        
+        self.attention = register.layer_dict[cfg.gt.attn_type](dim_h, self.num_heads,cfg.gt.attn_dropout)
+        
+        # self.preattnLayernorm = nn.LayerNorm(dim_h)
         if self.layer_norm:
             self.layer_norm1 = nn.LayerNorm(dim_h)
             
@@ -31,8 +36,8 @@ class GraphTransformerLayer(nn.Module):
             self.batch_norm1 = nn.BatchNorm1d(dim_h)
         
         # FFN
-        self.FFN_layer1 = nn.Linear(dim_h, dim_h*2)
-        self.FFN_layer2 = nn.Linear(dim_h*2, dim_h)
+        self.FFN_layer1 = nn.Linear(dim_h, self.ffn_dim)
+        self.FFN_layer2 = nn.Linear(self.ffn_dim, dim_h)
 
         if self.layer_norm:
             self.layer_norm2 = nn.LayerNorm(dim_h)
@@ -40,11 +45,14 @@ class GraphTransformerLayer(nn.Module):
         if self.batch_norm:
             self.batch_norm2 = nn.BatchNorm1d(dim_h)
         
-    def forward(self, batch):
+    def forward(self, batch,mask):
+        
         h_in1 = batch.x
         
-        batch = self.attention(batch)
-        
+        # batch.x = self.preattnLayernorm(batch.x) 
+
+        batch = self.attention(batch,mask)
+        # torch.save(batch,"./tmp1.pt")
         #h = attn_out.view(-1, self.out_channels)
         
         h = batch.x 
@@ -62,9 +70,10 @@ class GraphTransformerLayer(nn.Module):
         
         # FFN
         h = self.FFN_layer1(h)
-        h = F.relu(h)
-        h = F.dropout(h, self.dropout, training=self.training)
+        h = self.act(h)
         h = self.FFN_layer2(h)
+
+        h = F.dropout(h, self.dropout, training=self.training)
 
         if self.residual:
             h = h_in2 + h # residual connection

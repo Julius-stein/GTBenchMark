@@ -27,10 +27,8 @@ def compute_loss(pred, true, epoch=None):
     true = true.squeeze(-1) if true.ndim > 1 else true
 
     # Try to load customized loss
-    for func in register.loss_dict.values():
-        value = func(pred, true, epoch)
-        if value is not None:
-            return value
+    if cfg.model.loss_fun in register.loss_dict:
+        return register.loss_dict[cfg.model.loss_fun](pred, true)
 
     if cfg.model.loss_fun == 'cross_entropy':
         # multiclass

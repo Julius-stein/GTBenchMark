@@ -30,12 +30,14 @@ class NAGphormerLayer(nn.Module):
         self.ffn_dropout = nn.Dropout(self.dropout)
 
     def forward(self, batch):
+        
         h_in1 = batch.x
 
         batch.x = self.attention_norm(batch.x)
 
-        
+         
         batch.x = self.attention(batch.x, batch.x, batch.x)
+        torch.save(batch,"./tmp2.pt") 
         batch.x = self.attention_post_dropout(batch.x)
         batch.x = batch.x + h_in1
 

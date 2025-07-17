@@ -17,6 +17,7 @@ optimizer_dict: Dict[str, Any] = {}
 scheduler_dict: Dict[str, Any] = {}
 loss_dict: Dict[str, Any] = {}
 train_dict: Dict[str, Any] = {}
+mask_dict: Dict[str, Any] = {}
 feature_augment_dict: Dict[str, Any] = {}
 metric_dict: Dict[str, Any] = {}
 
@@ -120,6 +121,11 @@ def register_scheduler(key: str, module: Any = None):
 def register_loss(key: str, module: Any = None):
     r"""Registers a loss function in GraphGym."""
     return register_base(loss_dict, key, module)
+
+
+def register_mask(key: str, module: Any = None):
+    r"""Registers a mask generation function in GraphGym."""
+    return register_base(mask_dict, key, module)
 
 
 def register_train(key: str, module: Any = None):

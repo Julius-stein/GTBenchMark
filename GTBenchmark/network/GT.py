@@ -6,11 +6,11 @@ import GTBenchmark.graphgym.models.head  # noqa, register module
 import GTBenchmark.graphgym.register as register
 import torch_geometric.nn as pyg_nn
 from GTBenchmark.graphgym.config import cfg
-from GTBenchmark.graphgym.register import register_network
+from GTBenchmark.graphgym.register import register_network, register_mask
 from GTBenchmark.network.utils import FeatureEncoder
 from torch_geometric.nn import (Sequential, Linear, HeteroConv, GraphConv, SAGEConv, HGTConv, GATConv)
 
-
+# TODO:耦合GNN
 
 @register_network('GTModel')
 class GTModel(torch.nn.Module):
@@ -24,12 +24,14 @@ class GTModel(torch.nn.Module):
         self.layer_norm = cfg.gt.layer_norm
         self.l2_norm    = cfg.gt.l2_norm
         GNNHead         = register.head_dict[cfg.gt.head]
+        self.has_gnn = False
 
         self.encoder = FeatureEncoder()
         
         self.num_virtual_nodes = cfg.gt.virtual_nodes
         self.dim_in = dim_in
 
+        #TODO 目前这个逻辑不太对
         try:
             self.postfixed_local_model = False
             layer_type = cfg.gt.layer_type
@@ -50,15 +52,15 @@ class GTModel(torch.nn.Module):
             raise ValueError(f"Unexpected layer type: {layer_type}")
 
         self.convs = nn.ModuleList()
-        self.norms = nn.ModuleList()
+        # self.norms = nn.ModuleList()
         for i in range(cfg.gt.layers):
             conv = register.layer_dict['GraphTransformerLayer'](dim_h=self.dim_h)
             self.convs.append(conv)
 
-            if self.layer_norm:
-                self.norms.append(nn.LayerNorm(self.dim_h))
-            elif self.batch_norm:
-                self.norms.append(nn.BatchNorm1d(self.dim_h))
+            # if self.layer_norm:
+            #     self.norms.append(nn.LayerNorm(self.dim_h))
+            # elif self.batch_norm:
+            #     self.norms.append(nn.BatchNorm1d(self.dim_h))
             
 
         self.post_gt = GNNHead(self.dim_h, dim_out)
@@ -68,17 +70,26 @@ class GTModel(torch.nn.Module):
         if self.num_virtual_nodes > 0:
             for node_type in self.virtual_nodes:
                 torch.nn.init.normal_(self.virtual_nodes[node_type])
+        
 
     def forward(self, batch):
+        
+        maskGenerator = register.mask_dict[cfg.mask.name](batch).to(cfg.device)
+
+            
         batch = self.encoder(batch)
         
         batch.x = self.input_drop(batch.x)
 
         num_nodes_dict = None
-        
+        batch,mask = maskGenerator(batch)
         for i in range(cfg.gt.layers):
-            batch = self.convs[i](batch)
-
+            batch = self.convs[i](batch,mask)
+            if self.has_gnn == True:
+                batch,mask = maskGenerator.from_dense_batch(batch)
+                #TODO
+        batch = maskGenerator.from_dense_batch(batch)
+        
         if self.num_virtual_nodes > 0:
             # Remove the virtual nodes
             for node_type in batch.node_types:

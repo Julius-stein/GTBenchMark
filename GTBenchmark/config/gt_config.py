@@ -90,5 +90,5 @@ def set_cfg_gt(cfg):
 
     # cfg.gt.bigbird.layer_norm_eps = 1e-6
 
-    cfg.gt.ffn_dim = 1024
+    cfg.gt.ffn_dim = 0
     cfg.gt.use_graph_token = False

@@ -23,5 +23,7 @@ def dataset_cfg(cfg):
 
     cfg.dataset.rand_split = False
 
-    # NAG
+    cfg.dataset.preprocess = "None"
+
+    # NAG preprocess
     cfg.dataset.hop = 3 

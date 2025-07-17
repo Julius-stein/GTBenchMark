@@ -180,19 +180,13 @@ def load_dataset():
         raise ValueError('Unknown data format: {}'.format(format))
     return dataset
 
-
 def set_dataset_info(dataset):
     r"""
     Set global dataset information
-
-    Args:
-        dataset: PyG dataset object
-
     """
-
-    # get dim_in and dim_out
+    # --- dim_in ---
     try:
-        if isinstance(dataset.data, HeteroData): # Hetero graph
+        if isinstance(dataset.data, HeteroData):  # Hetero graph
             cfg.share.dim_in = CN()
             task = cfg.dataset.task_entity
             try:
@@ -202,61 +196,71 @@ def set_dataset_info(dataset):
                             cfg.share.dim_in[node_type] = dataset.data.x_dict[node_type].shape[1]
                         else:
                             cfg.share.dim_in[node_type] = None
-            except:
-                pass # No x_dict
+            except Exception:
+                pass  # No x_dict
             try:
                 if hasattr(dataset.data, "edge_attr_dict"):
                     for edge_type in dataset.data.edge_types:
                         if edge_type in dataset.data.edge_attr_dict:
-                            # Key doesn't support tuple
                             cfg.share.dim_in["__".join(edge_type)] = dataset.data.edge_attr_dict[edge_type].shape[1]
                         else:
                             cfg.share.dim_in["__".join(edge_type)] = None
-            except:
-                pass # No edge_attr_dict
+            except Exception:
+                pass  # No edge_attr_dict
         else:
-            cfg.share.dim_in = dataset.data.x.shape[1]
+            cfg.share.dim_in = dataset.data.x.shape[-1]
     except Exception:
         cfg.share.dim_in = 1
-        
+
+    # --- get label tensor y (graph-level or edge-level depending on task) ---
+    y = None
     try:
-        if cfg.dataset.task_type == 'classification':
-            if isinstance(dataset.data, HeteroData): # Hetero graph
-                task = cfg.dataset.task_entity
-                if hasattr(dataset.data[task], 'y'):
-                    y = dataset.data[task].y
-                elif hasattr(dataset.data[task], 'edge_label'):
-                    y = dataset.data[task].edge_label
-            else:
-                if hasattr(dataset.data, 'y'):
-                    y = dataset.data.y
-                elif hasattr(dataset.data, 'edge_label'):
-                    y = dataset.data.edge_label
-
-            if y.numel() == y.size(0) and not torch.is_floating_point(y):
-                cfg.share.dim_out = int(y.max()) + 1
-            elif y.numel() == y.size(0) and torch.is_floating_point(y):
-                cfg.share.dim_out = torch.unique(y).numel()
-            else:
-                cfg.share.dim_out = y.size[-1]
+        if isinstance(dataset.data, HeteroData):
+            task = cfg.dataset.task_entity
+            if hasattr(dataset.data[task], 'y'):
+                y = dataset.data[task].y
+            elif hasattr(dataset.data[task], 'edge_label'):
+                y = dataset.data[task].edge_label
         else:
-            if isinstance(dataset.data, HeteroData):
-                task = cfg.dataset.task_entity
-                if hasattr(dataset.data[task], 'y'):
-                    y = dataset.data[task].y
-                elif hasattr(dataset.data[task], 'edge_label'):
-                    y = dataset.data[task].edge_label
-            else:
-                if hasattr(dataset.data, 'y'):
-                    y = dataset.data.y
-                elif hasattr(dataset.data, 'edge_label'):
-                    y = dataset.data.edge_label
-
-            cfg.share.dim_out = y.shape[-1]
+            if hasattr(dataset.data, 'y'):
+                y = dataset.data.y
+            elif hasattr(dataset.data, 'edge_label'):
+                y = dataset.data.edge_label
     except Exception:
-        cfg.share.dim_out = 1
+        y = None
 
-    # count number of dataset splits
+    if y is None:
+        cfg.share.dim_out = 1
+    else:
+        # --- normalize shape (ensure tensor) ---
+        if not torch.is_tensor(y):
+            y = torch.as_tensor(y)
+
+        # --- classification vs regression ---
+        if cfg.dataset.task_type == 'classification':
+            if y.dim() == 1:  # class ids
+                if torch.is_floating_point(y):
+                    # Rare case: float class ids? fallback to unique count
+                    cfg.share.dim_out = int(torch.unique(y).numel())
+                else:
+                    cfg.share.dim_out = int(y.max().item()) + 1
+            elif y.dim() == 2:
+                cfg.share.dim_out = y.size(-1)  # one-hot / multi-label
+            else:
+                # flatten trailing dims
+                cfg.share.dim_out = int(torch.prod(torch.tensor(y.shape[1:])).item())
+        else:
+            # regression / scores
+            if y.dim() == 0:
+                cfg.share.dim_out = 1
+            elif y.dim() == 1:
+                cfg.share.dim_out = 1      # <== KEY FIX
+            elif y.dim() == 2:
+                cfg.share.dim_out = y.size(-1)
+            else:
+                cfg.share.dim_out = int(torch.prod(torch.tensor(y.shape[1:])).item())
+
+    # --- count splits ---
     cfg.share.num_splits = 1
     for key in dataset.data.keys():
         if 'val' in key:
@@ -269,6 +273,96 @@ def set_dataset_info(dataset):
 
     if hasattr(dataset, 'dynamicTemporal'):
         cfg.share.num_splits = len(dataset)
+
+
+# def set_dataset_info(dataset):
+#     r"""
+#     Set global dataset information
+
+#     Args:
+#         dataset: PyG dataset object
+
+#     """
+
+#     # get dim_in and dim_out
+#     try:
+#         if isinstance(dataset.data, HeteroData): # Hetero graph
+#             cfg.share.dim_in = CN()
+#             task = cfg.dataset.task_entity
+#             try:
+#                 if hasattr(dataset.data, "x_dict"):
+#                     for node_type in dataset.data.node_types:
+#                         if node_type in dataset.data.x_dict:
+#                             cfg.share.dim_in[node_type] = dataset.data.x_dict[node_type].shape[1]
+#                         else:
+#                             cfg.share.dim_in[node_type] = None
+#             except:
+#                 pass # No x_dict
+#             try:
+#                 if hasattr(dataset.data, "edge_attr_dict"):
+#                     for edge_type in dataset.data.edge_types:
+#                         if edge_type in dataset.data.edge_attr_dict:
+#                             # Key doesn't support tuple
+#                             cfg.share.dim_in["__".join(edge_type)] = dataset.data.edge_attr_dict[edge_type].shape[1]
+#                         else:
+#                             cfg.share.dim_in["__".join(edge_type)] = None
+#             except:
+#                 pass # No edge_attr_dict
+#         else:
+#             cfg.share.dim_in = dataset.data.x.shape[-1]
+#     except Exception:
+#         cfg.share.dim_in = 1
+        
+#     try:
+#         if cfg.dataset.task_type == 'classification':
+#             if isinstance(dataset.data, HeteroData): # Hetero graph
+#                 task = cfg.dataset.task_entity
+#                 if hasattr(dataset.data[task], 'y'):
+#                     y = dataset.data[task].y
+#                 elif hasattr(dataset.data[task], 'edge_label'):
+#                     y = dataset.data[task].edge_label
+#             else:
+#                 if hasattr(dataset.data, 'y'):
+#                     y = dataset.data.y
+#                 elif hasattr(dataset.data, 'edge_label'):
+#                     y = dataset.data.edge_label
+
+#             if y.numel() == y.size(0) and not torch.is_floating_point(y):
+#                 cfg.share.dim_out = int(y.max()) + 1
+#             elif y.numel() == y.size(0) and torch.is_floating_point(y):
+#                 cfg.share.dim_out = torch.unique(y).numel()
+#             else:
+#                 cfg.share.dim_out = y.size[-1]
+#         else:
+#             if isinstance(dataset.data, HeteroData):
+#                 task = cfg.dataset.task_entity
+#                 if hasattr(dataset.data[task], 'y'):
+#                     y = dataset.data[task].y
+#                 elif hasattr(dataset.data[task], 'edge_label'):
+#                     y = dataset.data[task].edge_label
+#             else:
+#                 if hasattr(dataset.data, 'y'):
+#                     y = dataset.data.y
+#                 elif hasattr(dataset.data, 'edge_label'):
+#                     y = dataset.data.edge_label
+
+#             cfg.share.dim_out = y.shape[-1]
+#     except Exception:
+#         cfg.share.dim_out = 1
+
+#     # count number of dataset splits
+#     cfg.share.num_splits = 1
+#     for key in dataset.data.keys():
+#         if 'val' in key:
+#             cfg.share.num_splits += 1
+#             break
+#     for key in dataset.data.keys():
+#         if 'test' in key:
+#             cfg.share.num_splits += 1
+#             break
+
+#     if hasattr(dataset, 'dynamicTemporal'):
+#         cfg.share.num_splits = len(dataset)
 
 
 def create_dataset():
