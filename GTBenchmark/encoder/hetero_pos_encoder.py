@@ -21,7 +21,7 @@ class HeteroPENodeEncoder(torch.nn.Module):
 
     kernel_type = None  # Instantiated type of the KernelPE, e.g. RWSE
 
-    def __init__(self, dim_emb, dataset, reshape_x=True):
+    def __init__(self, dim_emb, dataset, reshape_x=False):
         super().__init__()
         self.is_hetero = isinstance(dataset[0], HeteroData)
         if self.kernel_type is None:

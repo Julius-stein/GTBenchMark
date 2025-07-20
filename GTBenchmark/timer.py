@@ -90,6 +90,8 @@ class RuntimeStatisticsCUDA:
         self.cuda_timer_start = dict()
         self.cuda_timer_end = dict()
 
+
+
     def report_stats(self, display_keys=None):
         rows = []
         for x in sorted(self.cuda_times.keys()):
@@ -135,7 +137,19 @@ class RuntimeStatisticsCUDA:
                    tab.add_row([print_name, "N/A", "N/A"])
                else:
                    tab.add_row([print_name, statistics.mean(self.cuda_times[x]), statistics.stdev(self.cuda_times[x])])
-            print(tab.get_string(sortby=tab.field_names[1]))
+            # print(tab.get_string(sortby=tab.field_names[1]))
+            def sort_key(val):
+                try:
+                    # 数字字符串或数值 → 转成 float
+                    return float(val)
+                except Exception:
+                    # "N/A" 或其他非数字 → 视为最大
+                    return float("inf")
+            print(tab.get_string(
+                sortby=tab.field_names[1],
+                sort_key=sort_key
+            ))
+
 
         print("===Showing runtime stats for: " + self.name + " ===")
 

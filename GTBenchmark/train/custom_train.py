@@ -69,6 +69,7 @@ def check_grad(model):
 def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler, batch_accumulation):
     pbar = tqdm(total=len(loader), disable=not cfg.train.tqdm)
     pbar.set_description(f'Train epoch')
+    # enable_runtime_stats()
 
     model.train()
 
@@ -113,9 +114,7 @@ def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler, batch_ac
                 "total", runtime_stats_cuda.get_last_event())
             runtime_stats_cuda.start_region(
                 "sampling", runtime_stats_cuda.get_last_event())
-            # print('Crashed?')
             batch = next(iterator, None)
-            # print('Crashed?')
             it += 1
             if batch is None:
                 runtime_stats_cuda.end_region("sampling")

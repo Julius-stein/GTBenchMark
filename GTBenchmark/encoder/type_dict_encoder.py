@@ -80,7 +80,7 @@ Edge labels:
 
 @register_node_encoder('TypeDictNode')
 class TypeDictNodeEncoder(torch.nn.Module):
-    def __init__(self):
+    def __init__(self,dim_out):
         super().__init__()
  
         num_types = cfg.dataset.node_encoder_num_types
@@ -88,7 +88,7 @@ class TypeDictNodeEncoder(torch.nn.Module):
             raise ValueError(f"Invalid 'node_encoder_num_types': {num_types}")
 
         self.encoder = torch.nn.Embedding(num_embeddings=num_types,
-                                          embedding_dim=cfg.gt.dim_hidden)
+                                          embedding_dim=dim_out)
         # torch.nn.init.xavier_uniform_(self.encoder.weight.data)
 
     def forward(self, batch):
@@ -100,7 +100,7 @@ class TypeDictNodeEncoder(torch.nn.Module):
 
 @register_edge_encoder('TypeDictEdge')
 class TypeDictEdgeEncoder(torch.nn.Module):
-    def __init__(self):
+    def __init__(self,dim_out):
         super().__init__()
 
         num_types = cfg.dataset.edge_encoder_num_types
@@ -108,7 +108,7 @@ class TypeDictEdgeEncoder(torch.nn.Module):
             raise ValueError(f"Invalid 'edge_encoder_num_types': {num_types}")
 
         self.encoder = torch.nn.Embedding(num_embeddings=num_types,
-                                          embedding_dim=cfg.gt.dim_hidden)
+                                          embedding_dim=dim_out)
         # torch.nn.init.xavier_uniform_(self.encoder.weight.data)
 
     def forward(self, batch):

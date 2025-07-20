@@ -68,6 +68,21 @@ def convert_batch_homo(batch):
     batch.y = batch.y.to(torch.long) 
     return batch
 
+def add_graph_info(batch):
+    # batch.batch 长度 = N_total，值域 [0, G-1]
+    G = int(batch.batch.max()) + 1
+    if G > 1:
+        # 子图数
+        batch.num_graphs = G
+        # ptr 里存每张子图的累积节点偏移量，跟 Batch.ptr 含义一致
+        counts = torch.bincount(batch.batch)
+        batch.ptr = torch.cat([
+            counts.new_zeros(1),
+            counts.cumsum(0),
+        ])
+    return batch
+
+
 @register_sampler('hetero_neighbor')
 def get_HNeighborLoader(dataset, batch_size, shuffle=True, split='train'):
     r"""
@@ -187,7 +202,7 @@ def get_NeighborLoader(dataset, batch_size, shuffle=True, split='train'):
                 num_workers=cfg.num_workers,
                 persistent_workers=cfg.train.persistent_workers,
                 pin_memory=cfg.train.pin_memory,
-                transform=Compose([convert_batch_homo, reorder_by_seeds])),
+                transform=Compose([convert_batch_homo, reorder_by_seeds,add_graph_info])),
             getattr(cfg, 'val' if split == 'test' else split).iter_per_epoch,
             split
         )

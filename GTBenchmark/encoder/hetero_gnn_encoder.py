@@ -90,7 +90,7 @@ class HeteroGNNEncoder(torch.nn.Module):
         dim_in: the raw feature dimension
         dim_emb: the expected embedding dimension (only effective when `reshape_x`=)
     """
-    def __init__(self, dim_emb, dataset, reshape_x=True):
+    def __init__(self, dim_emb, dataset, reshape_x=False):
         super().__init__()
         pecfg           = cfg.posenc_Hetero_GNN
         # self.dim_in = cfg.share.dim_in

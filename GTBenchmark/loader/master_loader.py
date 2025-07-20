@@ -754,6 +754,7 @@ def preformat_OGB_Node(dataset_dir, name):
         elif name in ['ogbn-arxiv']:
             dataset = PygNodePropPredDataset(name='ogbn-arxiv', root=dataset_dir)
             data = dataset[0]
+            data.y = data.y.squeeze(-1).to(torch.long) 
             split_idx = dataset.get_idx_split()
             print(data)
             print(split_idx)

@@ -28,13 +28,19 @@ train:
   tqdm: True
   persistent_workers: True
   pin_memory: True
+posenc_RWSE:
+  enable: False
+  kernel:
+    times_func: range(1,6)
+  model: Linear
+  dim_pe: 28
+  # raw_norm_type: BatchNorm
 val:
   sampler: neighbor
   iter_per_epoch: -1
   tqdm: True
 model:
   type: GTModel
-  loss_fun: cross_entropy
 gt:
   node_encoder_list: ['RawEncoder']
   edge_encoder_list: []
@@ -48,7 +54,7 @@ gt:
   layer_norm: True
   residual: True
 mask:
-  name: full
+  name: graph
 gnn:
   dropout: 0.2
 optim:

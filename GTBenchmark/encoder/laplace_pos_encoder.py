@@ -18,7 +18,7 @@ class LapPENodeEncoder(torch.nn.Module):
         reshape_x: Expand node features `x` from dim_in to (dim_emb - dim_pe)
     """
 
-    def __init__(self, dim_emb, data, reshape_x=True):
+    def __init__(self, dim_emb, data, reshape_x=False):
         super().__init__()
         dim_in = cfg.share.dim_in  # Expected original input node features dim
 

@@ -40,7 +40,7 @@ model:
   type: GTModel
   loss_fun: l1
 gt:
-  node_encoder_list: ['TypeDictNode']
+  node_encoder_list: ['TypeDictNode',"RWSE"]
   edge_encoder_list: ['TypeDictEdge']
   attn_type: GeneralAttention
   layers: 10

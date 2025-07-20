@@ -13,17 +13,17 @@ class Fullpair(nn.Module):
     def __init__(self,batch):
         super().__init__()
         self.Dmask = None
-        if cfg.dataset.task == "graph":
+        if hasattr(batch,"num_graphs"):
             self.batch_size = batch.num_graphs
             self.max_num_nodes = int((batch.ptr[1:] - batch.ptr[:-1]).max())
             self.flat_size = self.batch_size * self.max_num_nodes
-            self.F = cfg.share.dim_in
+            self.F = cfg.gt.dim_hidden
                    
                 
 
     def forward(self, batch):
         # x: (N, d) -- >(B,N,d)
-        if cfg.dataset.task == "graph":
+        if hasattr(batch,"num_graphs"):
             x = batch.x
             if self.Dmask == None:
                 batch.x,self.Dmask,self.Gindex = to_dense_batch(x,batch.batch,max_num_nodes=self.max_num_nodes,batch_size=self.batch_size)
@@ -41,11 +41,12 @@ class Fullpair(nn.Module):
         else:
             attn_mask = None
 
+
         return batch, attn_mask
     
     def from_dense_batch(self,batch):
         # x: (B,N,d) -- > (N, d)
-        if cfg.dataset.task == "graph":
+        if hasattr(batch,"num_graphs"):
             x = batch.x
             if self.Dmask == None:
                 raise RuntimeError("from_dense_batch() called before dense batch was built in forward().")

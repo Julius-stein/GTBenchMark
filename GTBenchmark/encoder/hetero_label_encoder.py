@@ -20,7 +20,7 @@ class HeteroLabelNodeEncoder(torch.nn.Module):
         emb_dim (int): Output embedding dimension
         dataset (Any): A :class:`~torch_geometric.data.InMemoryDataset` dataset object.
     """
-    def __init__(self, dim_emb, dataset, reshape_x=True):
+    def __init__(self, dim_emb, dataset, reshape_x=False):
         super().__init__()
         self.dim_in = cfg.share.dim_in
         self.dim_out = cfg.share.dim_out

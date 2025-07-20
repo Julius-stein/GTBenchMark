@@ -48,14 +48,14 @@ class MultiHeadGraphAttentionLayer(MessagePassing):
 
 @register_layer('MessagePassingAttention')
 class MPAttn(nn.Module):
-    def __init__(self, dim_h, num_heads, x_name='x', b_name='attn_bias', e_name='edge_index'):
+    def __init__(self, dim_h, num_heads,attn_drop=0.0, x_name='x', b_name='attn_bias', e_name='edge_index'):
         super(MPAttn, self).__init__()
         self.x_name = x_name
         self.b_name = b_name
         self.e_name = e_name
-        self.attention = MultiHeadGraphAttentionLayer(dim_h, num_heads, dropout=cfg.gt.attn_dropout)
+        self.attention = MultiHeadGraphAttentionLayer(dim_h, num_heads, dropout=attn_drop)
 
-    def forward(self, batch):
+    def forward(self, batch,mask):
         x, edge_index, edge_bias = getattr(batch, self.x_name), getattr(batch, self.e_name), getattr(batch, self.b_name, None)
         h, _ = self.attention(x, edge_index, edge_bias)
         setattr(batch, self.x_name, h)

@@ -26,7 +26,7 @@ class KernelPENodeEncoder(torch.nn.Module):
 
     kernel_type = None  # Instantiated type of the KernelPE, e.g. RWSE
 
-    def __init__(self, dim_emb, expand_x=True):
+    def __init__(self,dim_out, expand_x=False):
         super().__init__()
         if self.kernel_type is None:
             raise ValueError(f"{self.__class__.__name__} has to be "
@@ -34,7 +34,7 @@ class KernelPENodeEncoder(torch.nn.Module):
                              f"variable before calling the constructor.")
 
         dim_in = cfg.share.dim_in  # Expected original input node features dim
-
+        dim_emb = cfg.gt.dim_hidden
         pecfg = getattr(cfg, f"posenc_{self.kernel_type}")
         dim_pe = pecfg.dim_pe  # Size of the kernel-based PE embedding
         num_rw_steps = len(pecfg.kernel.times)

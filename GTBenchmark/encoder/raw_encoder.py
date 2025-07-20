@@ -28,12 +28,12 @@ class RawNodeEncoder(torch.nn.Module):
         emb_dim (int): Output embedding dimension
         dataset (Any): A :class:`~torch_geometric.data.InMemoryDataset` dataset object.
     """
-    def __init__(self):
+    def __init__(self,dim_out):
         super().__init__()
         self.dim_in = cfg.share.dim_in
-        self.dim_h = cfg.gt.dim_hidden
+        # self.dim_h = cfg.gt.dim_hidden
         
-        self.linear = nn.Linear(self.dim_in, self.dim_h)
+        self.linear = nn.Linear(self.dim_in, dim_out)
         
         
     def forward(self, batch):
@@ -54,12 +54,12 @@ class RawEdgeEncoder(torch.nn.Module):
         emb_dim (int): Output embedding dimension
         dataset (Any): A :class:`~torch_geometric.data.InMemoryDataset` dataset object.
     """
-    def __init__(self):
+    def __init__(self,dim_out):
         super().__init__()
         self.dim_in = cfg.share.dim_in
-        self.dim_h = getattr(cfg, ENCODER_NAME).dim_h
+        # self.dim_h = getattr(cfg, ENCODER_NAME).dim_h
         
-        self.linear = nn.Linear(self.dim_in, self.dim_h)
+        self.linear = nn.Linear(self.dim_in, dim_out)
         
         
     def forward(self, batch):

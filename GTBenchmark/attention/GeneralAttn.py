@@ -167,6 +167,7 @@ class GeneralAttn(nn.Module):
         return_attn_weights: bool = False,
     ) -> Tensor | Tuple[Tensor, Tensor]:
         x = getattr(batch,self.x_name)
+        
         B, N, _ = x.shape
         H, D = self.num_heads, self.head_dim
 

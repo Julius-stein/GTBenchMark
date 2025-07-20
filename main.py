@@ -132,6 +132,9 @@ def run():
     if args.mark_done:
         os.rename(args.cfg_file, f'{args.cfg_file}_done')
     logging.info(f"[*] All done: {datetime.datetime.now()}")
+    for loader in loaders:
+        del loader
+    torch.cuda.empty_cache()
 
 if __name__ == '__main__':
     run()
