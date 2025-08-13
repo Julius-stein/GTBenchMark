@@ -5,10 +5,9 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn.functional import scaled_dot_product_attention
 from torch.nn.attention import sdpa_kernel, SDPBackend
-from typing import Optional, Tuple
 from contextlib import nullcontext
+from typing import Optional
 
-# 支持的后端映射
 _BACKEND_MAP = {
     "auto":      None,
     "cudnn":     SDPBackend.CUDNN_ATTENTION,
@@ -17,193 +16,150 @@ _BACKEND_MAP = {
     "math":      SDPBackend.MATH,
 }
 
-class SDPAttn(nn.Module):
+def _to_additive_from_full_mask(full_mask: Tensor, Np: int) -> Tensor:
     """
-    基于 scaled_dot_product_attention 的通用 Attention 模块，
-    可切换多种后端，并可选返回 Attention 权重。
+    full_mask: [B,1,N,N]，bool(True=keep) 或 float(0/-inf)
+    返回：     [B,1,Np,Np] 的 additive 浮点掩码（与 graph token 对齐）
     """
-    def __init__(
-        self,
-        embed_dim: int,
-        dropout_p: float = 0.0,
-        backend: str = "auto",
-    ) -> None:
-        """
-        Args:
-            embed_dim:   QKV 合并后维度（H * D_head）
-            dropout_p:   Attention 权重上的 dropout 概率
-            backend:     one of ["auto","cudnn","flash","efficient","math"]
-        """
-        super().__init__()
-        if backend not in _BACKEND_MAP:
-            raise ValueError(f"Unknown backend '{backend}', valid keys: {list(_BACKEND_MAP)}")
-        self.backend = backend
-        self.dropout_p = dropout_p
+    assert full_mask.dim() == 4 and full_mask.size(1) == 1
+    B, _, N, _ = full_mask.shape
+    if full_mask.dtype == torch.bool:
+        add = torch.zeros_like(full_mask, dtype=torch.float)
+        add = add.masked_fill(~full_mask, float('-inf'))
+    else:
+        add = full_mask
 
-    def forward(
-        self,
-        Q: Tensor,
-        K: Tensor,
-        V: Tensor,
-        mask: Optional[Tensor] = None,
-        E: Optional[Tensor] = None,
-        return_attn_weights: bool = False,
-    ) -> Tensor | Tuple[Tensor, Tensor]:
-        """
-        Args:
-            Q, K, V:             shape (B, H, N, D_head)
-            mask:                optional bool/float tensor of shape
-                                 (N,N), (B,N,N), (B,1,N,N) or (B,H,N,N)
-            E:                   optional additive bias tensor of shape
-                                 (N,N) or (B,H,N,N)
-            is_causal:           whether to apply causal masking
-            return_attn_weights: whether to return (output, attn_weights)
-
-        Returns:
-            attn_out:            (B, H, N, D_head)
-            attn_weights:        (B, H, N, N) if return_attn_weights=True
-        """
-        # —— 1. 检查维度一致性 —— 
-        B, H, N, D = Q.shape
-        if K.shape != Q.shape or V.shape != Q.shape:
-            raise ValueError("Q, K, V must have the same shape")
-        if mask is not None:
-            if mask.dim() not in (2, 3, 4):
-                raise ValueError("mask.dim must be 2, 3, or 4")
-            if mask.shape[-2:] != (N, N):
-                raise ValueError(f"mask's last two dims must be (N,N), got {mask.shape[-2:]}")
-            if mask.dim() == 4 and mask.shape[1] not in (1, H):
-                raise ValueError(f"When mask.dim==4, mask.shape[1] must be 1 or H={H}")
-
-        # —— 2. 使用 fused SDP（不需要权重时） —— 
-        if not return_attn_weights:
-            backend_enum = _BACKEND_MAP[self.backend]
-            ctx = sdpa_kernel([backend_enum]) if backend_enum is not None else nullcontext()
-            with ctx:
-                out = scaled_dot_product_attention(
-                    Q, K, V,
-                    attn_mask=mask,
-                    dropout_p=self.dropout_p,
-                    is_causal=False,
-                )
-
-            return out
-
-        # —— 3. 手动计算（需要返回权重时） —— 
-        # 3.1 raw scores
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)  # (B,H,N,N)
-        # 3.2 加性偏置 E
-        if E is not None:
-            if E.dim() == 2:
-                scores = scores + E
-            elif E.dim() == 4:
-                scores = scores + E.unsqueeze(0)
-            else:
-                raise ValueError("E must have dim 2 or 4")
-        # 3.3 应用 mask
-        if mask is not None:
-            m = mask
-            if m.dim() == 2:
-                m = m.unsqueeze(0).unsqueeze(1)    # -> (1,1,N,N)
-            elif m.dim() == 3:
-                m = m.unsqueeze(1)                # -> (B,1,N,N)
-            # bool mask: False->-inf；float mask: 直接相加
-            scores = torch.where(m if m.dtype==torch.bool else torch.ones_like(scores),
-                                 float("-inf") if m.dtype==torch.bool else scores, scores) \
-                     if m.dtype==torch.bool else scores + m
-
-        # 3.4 softmax + dropout 得到 attn_weights
-        attn_weights = F.softmax(scores, dim=-1)                         # (B,H,N,N)
-        attn_weights = F.dropout(attn_weights, p=self.dropout_p, training=self.training)
-        # 3.5 加权 V
-        out = torch.matmul(attn_weights, V)                              # (B,H,N,D)
-
-        return out, attn_weights
+    if Np == N + 1:
+        add = F.pad(add, (1, 0, 1, 0), value=0.0)  # 给 graph token 左上补 0 行列
+    elif Np != N:
+        raise RuntimeError(f"Padding mask size mismatch: full N={N}, attn N'={Np}")
+    return add  # [B,1,Np,Np]
 
 
 import GTBenchmark.graphgym.register as register
 from GTBenchmark.graphgym.register import register_layer
+
 @register_layer('GeneralAttention')
 class GeneralAttn(nn.Module):
+    """
+    概念上“分离”：结构偏置 E 放 batch.attn_bias，padding mask 从 Fullpair 进来；
+    实现上当前 SDPA 仍需 additive mask -> 在层内临时融合（E + mask），未来换 Flex-Attn 直接传分离量即可。
+    """
     def __init__(
         self,
         embed_dim: int,
         num_heads: int,
         dropout_p: float = 0.0,
-        x_name='x', b_name='attn_bias',
+        x_name: str = 'x',
+        bias_name: str = 'attn_bias',   # BiasEncoder 写入到 batch.attn_bias（[B*H,Np,Np] 或 [B,H,Np,Np]）
         backend: str = "auto",
     ):
-        """
-        embed_dim:   输入/输出的维度 H * D_head
-        num_heads:   头数 H
-        默认为batch first情况
-        """
         super().__init__()
-        assert embed_dim % num_heads == 0, "embed_dim 必须能整除 num_heads"
+        assert embed_dim % num_heads == 0
         self.x_name = x_name
-        self.b_name = b_name
+        self.bias_name = bias_name
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
+        self.dropout_p = dropout_p
+        if backend not in _BACKEND_MAP:
+            raise ValueError(f"Unknown backend '{backend}', valid keys: {list(_BACKEND_MAP)}")
+        self.backend = backend
 
-        # 用于生成 Q, K, V 的线性层
         self.q_proj = nn.Linear(embed_dim, embed_dim)
         self.k_proj = nn.Linear(embed_dim, embed_dim)
         self.v_proj = nn.Linear(embed_dim, embed_dim)
-
-        # 调用前面定义的通用注意力
-        self.inner_attn = SDPAttn(
-            embed_dim=embed_dim,
-            dropout_p=dropout_p,
-            backend=backend
-        )
-        # Optional: 最终再投影一次
         self.out_proj = nn.Linear(embed_dim, embed_dim)
 
-    def forward(
-        self,
-        batch: Tensor,                           # (B, N, embed_dim)
-        mask: Optional[Tensor] = None,       # 可为 (N,N),(B,N,N),(B,1,N,N),(B,H,N,N)
-        return_attn_weights: bool = False,
-    ) -> Tensor | Tuple[Tensor, Tensor]:
-        x = getattr(batch,self.x_name)
-        
-        B, N, _ = x.shape
-        H, D = self.num_heads, self.head_dim
-
-        # 1. 线性映射
-        Q = self.q_proj(x)  # (B, N, H*D)
-        K = self.k_proj(x)
-        V = self.v_proj(x)
-
-        # 2. 拆分 heads
-        #   -> (B, N, H, D) -> (B, H, N, D)
-        Q = Q.view(B, N, H, D).transpose(1, 2)
-        K = K.view(B, N, H, D).transpose(1, 2)
-        V = V.view(B, N, H, D).transpose(1, 2)
-
-        # 3. 调用 GeneralAttn
-        if return_attn_weights:
-            attn_out, attn_w = self.inner_attn(
-                Q, K, V,
-                mask=mask,
-                return_attn_weights=True,
-            )
+    def _reshape_bias(self, attn_bias: Tensor, B: int, H: int, Np: int, device, dtype):
+        """
+        支持 [B*H,Np,Np] 或 [B,H,Np,Np]，统一成 [B,H,Np,Np]（float）。
+        """
+        if attn_bias.dim() == 3:
+            if attn_bias.size(0) != B * H:
+                raise RuntimeError(f"attn_bias size[0]={attn_bias.size(0)} != B*H={B*H}")
+            E = attn_bias.view(B, H, Np, Np)
+        elif attn_bias.dim() == 4:
+            if attn_bias.size(0) != B or attn_bias.size(1) != H:
+                raise RuntimeError(f"attn_bias shape={tuple(attn_bias.shape)} expect (B,H,Np,Np)")
+            E = attn_bias
         else:
-            attn_out = self.inner_attn(
-                Q, K, V,
-                mask=mask,
-                return_attn_weights=False,
-            )
+            raise RuntimeError(f"attn_bias dim={attn_bias.dim()} not in {{3,4}}")
+        return E.to(device=device, dtype=dtype)  # [B,H,Np,Np]
 
-        # 4. 合并 heads
-        #   (B, H, N, D) -> (B, N, H, D) -> (B, N, H*D)
-        out = attn_out.transpose(1, 2).contiguous().view(B, N, H * D)
+    def _fuse_for_sdpa(self, B: int, Np: int, H: int,
+                       pad_mask: Optional[Tensor], attn_bias: Optional[Tensor],
+                       device, dtype) -> Optional[Tensor]:
+        """
+        SDPA 需要一个 additive mask：把 padding 的 full mask（[B,1,N,N]）与结构偏置 E（[B*H或B,H,Np,Np]）
+        在这里**临时相加**成 [B,H,Np,Np]。将来切 Flex-Attn 就把这一段改成“原样传 E 与 mask”即可。
+        """
+        fused = None
+        if attn_bias is not None:
+            fused = attn_bias  # 已经是 [B,H,Np,Np]
 
-        # 5. 最终投影
-        out = self.out_proj(out)  # (B, N, embed_dim)
+        if pad_mask is not None:
+            add = _to_additive_from_full_mask(pad_mask.to(device), Np)   # [B,1,Np,Np]
+            add = add.expand(B, H, Np, Np)
+            fused = add if fused is None else fused + add
+
+        if fused is not None:
+            fused = fused.to(device=device, dtype=dtype)
+        return fused  # [B,H,Np,Np] or None
+
+    def forward(self, batch, mask: Optional[Tensor] = None, return_attn_weights: bool = False):
+        """
+        mask: Fullpair 产生的 padding full mask（[B,1,N,N]，bool 或 0/-inf）
+        结构偏置：从 batch.attn_bias 读取（[B*H,Np,Np] or [B,H,Np,Np]），概念上与 mask 分离；
+        目前为了 SDPA 在层内融合成 additive mask，未来切 Flex-Attn 可直接传分离量。
+        """
+        x: Tensor = getattr(batch, self.x_name)  # [B,Np,D]
+        B, Np, _ = x.shape
+        H, D = self.num_heads, self.head_dim
+        device, dtype = x.device, x.dtype
+        _USE_MATH = True
+
+        # QKV + 分头
+        Q = self.q_proj(x).view(B, Np, H, D).transpose(1, 2).contiguous()
+        K = self.k_proj(x).view(B, Np, H, D).transpose(1, 2).contiguous()
+        V = self.v_proj(x).view(B, Np, H, D).transpose(1, 2).contiguous()
+
+        # 读取结构偏置（不在外部相加）
+        raw_bias = getattr(batch, self.bias_name, None)
+        E = None
+        if raw_bias is not None:
+            E = self._reshape_bias(raw_bias, B, H, Np, device, dtype)   # [B,H,Np,Np]
+
+        # —— 目前：为 SDPA 临时融合成一个 additive mask —— #
+        additive_mask = self._fuse_for_sdpa(B, Np, H, mask, E, device, dtype)
+
+        # 有 mask 时，禁用 flash/cudnn，更稳
+        backend = "efficient" if additive_mask is not None else self.backend
+        enum = _BACKEND_MAP.get(backend, None)
+        ctx = sdpa_kernel([enum]) if enum is not None else nullcontext()
+
+        if not return_attn_weights and not _USE_MATH:
+            with ctx:
+                out = scaled_dot_product_attention(
+                    Q, K, V,
+                    attn_mask=additive_mask,   # ← 临时融合（E + mask）
+                    dropout_p=self.dropout_p,
+                    is_causal=False,
+                )
+        else:
+            # 手动算权重（同样先融合）
+            scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)  # [B,H,Np,Np]
+            if additive_mask is not None:
+                scores = scores + additive_mask
+            attn = F.softmax(scores, dim=-1)
+            attn = F.dropout(attn, p=self.dropout_p, training=self.training)
+            out = torch.matmul(attn, V)
+
+        # 合头 + 输出投影
+        out = out.transpose(1, 2).contiguous().view(B, Np, H * D)
+        out = self.out_proj(out)
 
         if return_attn_weights:
-            return out, attn_w
+            return out, attn
         setattr(batch, self.x_name, out)
         return batch

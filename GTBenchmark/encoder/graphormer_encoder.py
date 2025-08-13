@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 from GTBenchmark.graphgym.config import cfg
 from GTBenchmark.graphgym.register import register_node_encoder
-from torch_geometric.utils import to_dense_adj, to_networkx
+from GTBenchmark.transform.graph2dense import to_dense_adj
 
 # Permutes from (batch, node, node, head) to (batch, head, node, node)
 BATCH_HEAD_NODE_NODE = (0, 3, 1, 2)
@@ -12,92 +12,6 @@ BATCH_HEAD_NODE_NODE = (0, 3, 1, 2)
 INSERT_GRAPH_TOKEN = (1, 0, 1, 0)
 
 
-def graphormer_pre_processing(data, distance):
-    """Implementation of Graphormer pre-processing. Computes in- and out-degrees
-    for node encodings, as well as spatial types (via shortest-path lengths) and
-    prepares edge encodings along shortest paths. The function adds the following
-    properties to the data object:
-
-    - spatial_types
-    - graph_index: An edge_index type tensor that contains all possible directed edges 
-                  (see more below)
-    - shortest_path_types: Populates edge attributes along all shortest paths between two nodes
-
-    Similar to the adjacency matrix, any matrix can be batched in PyG by decomposing it
-    into a 1D tensor of values and a 2D tensor of indices. Once batched, the graph-specific
-    matrix can be recovered (while appropriately padded) via ``to_dense_adj``. We use this 
-    concept to decompose the spatial type matrix and the shortest path edge type tensor
-    via the ``graph_index`` tensor.
-
-    Args:
-        data: A PyG data object holding a single graph
-        distance: The distance up to which types are calculated
-
-    Returns:
-        The augmented data object.
-    """
-    graph: nx.DiGraph = to_networkx(data)
-
-    data.in_degrees = torch.tensor([d for _, d in graph.in_degree()])
-    data.out_degrees = torch.tensor([d for _, d in graph.out_degree()])
-
-    max_in_degree = torch.max(data.in_degrees)
-    max_out_degree = torch.max(data.out_degrees)
-    if max_in_degree >= cfg.posenc_GraphormerBias.num_in_degrees:
-        raise ValueError(
-            f"Encountered in_degree: {max_in_degree}, set posenc_"
-            f"GraphormerBias.num_in_degrees to at least {max_in_degree + 1}"
-        )
-    if max_out_degree >= cfg.posenc_GraphormerBias.num_out_degrees:
-        raise ValueError(
-            f"Encountered out_degree: {max_out_degree}, set posenc_"
-            f"GraphormerBias.num_out_degrees to at least {max_out_degree + 1}"
-        )
-
-    if cfg.posenc_GraphormerBias.node_degrees_only:
-        return data
-
-    N = len(graph.nodes)
-    shortest_paths = nx.shortest_path(graph)
-
-    spatial_types = torch.empty(N ** 2, dtype=torch.long).fill_(distance)
-    graph_index = torch.empty(2, N ** 2, dtype=torch.long)
-
-    if hasattr(data, "edge_attr") and data.edge_attr is not None:
-        shortest_path_types = torch.zeros(N ** 2, distance, dtype=torch.long)
-        edge_attr = torch.zeros(N, N, dtype=torch.long)
-        edge_attr[data.edge_index[0], data.edge_index[1]] = data.edge_attr
-
-    for i in range(N):
-        for j in range(N):
-            graph_index[0, i * N + j] = i
-            graph_index[1, i * N + j] = j
-
-    for i, paths in shortest_paths.items():
-        for j, path in paths.items():
-            if len(path) > distance:
-                path = path[:distance]
-
-            assert len(path) >= 1
-            spatial_types[i * N + j] = len(path) - 1
-
-            if len(path) > 1 and hasattr(data, "edge_attr") and data.edge_attr is not None:
-                path_attr = [
-                    edge_attr[path[k], path[k + 1]] for k in
-                    range(len(path) - 1)  # len(path) * (num_edge_types)
-                ]
-
-                # We map each edge-encoding-distance pair to a distinct value
-                # and so obtain dist * num_edge_features many encodings
-                shortest_path_types[i * N + j, :len(path) - 1] = torch.tensor(
-                    path_attr, dtype=torch.long)
-
-    data.spatial_types = spatial_types
-    data.graph_index = graph_index
-
-    if hasattr(data, "edge_attr") and data.edge_attr is not None:
-        data.shortest_path_types = shortest_path_types
-    return data
 
 
 
@@ -111,86 +25,116 @@ def convert_to_single_emb(x, offset=512):
 
 
 class BiasEncoder(torch.nn.Module):
-    def __init__(self, num_heads: int, num_spatial_types: int,
-                 num_edge_types: int, use_graph_token: bool = True):
-        """Implementation of the bias encoder of Graphormer.
-        This encoder is based on the implementation at:
-        https://github.com/microsoft/Graphormer/tree/v1.0
-        Note that this refers to v1 of Graphormer.
-
-        Args:
-            num_heads: The number of heads of the Graphormer model
-            num_spatial_types: The total number of different spatial types
-            num_edge_types: The total number of different edge types
-            use_graph_token: If True, pads the attn_bias to account for the
-            additional graph token that can be added by the ``NodeEncoder``.
-        """
+    def __init__(self,
+                 num_heads: int,
+                 num_spatial_types: int,
+                 num_edge_types: int,
+                 use_graph_token: bool = True,
+                 # 新增：保持与 Graphormer 一致的两个开关
+                 edge_type: str = "multi_hop",           # "multi_hop" | "single_hop"
+                 multi_hop_max_dist: int = 0,            # 0 表示不裁剪
+                 num_edge_dis: int = None):              # 可不传，默认= num_spatial_types
         super().__init__()
         self.num_heads = num_heads
-
-        # Takes into account disconnected nodes
-        self.spatial_encoder = torch.nn.Embedding(
-            num_spatial_types + 1, num_heads)
-        self.edge_dis_encoder = torch.nn.Embedding(
-            num_spatial_types * num_heads * num_heads, 1)
-        self.edge_encoder = torch.nn.Embedding(num_edge_types, num_heads)
-
         self.use_graph_token = use_graph_token
+
+        # —— 新增属性 —— #
+        self.edge_type = edge_type
+        self.multi_hop_max_dist = int(multi_hop_max_dist)
+        self.num_edge_dis = int(num_edge_dis) if num_edge_dis is not None else int(num_spatial_types)
+
+        # 距离偏置：0 作为 pad（不连通）
+        self.spatial_encoder = torch.nn.Embedding(num_spatial_types,
+                                                  num_heads,
+                                                  padding_idx=0)
+        # 边类型偏置：0 作为 pad（我们在预处理里把“无边”与“-1”都映射到 0）
+        self.edge_encoder = torch.nn.Embedding(num_edge_types+ 1,
+                                               num_heads,
+                                               padding_idx=0)
+
+        # multi-hop 时才用
+        if self.edge_type == "multi_hop":
+            self.edge_dis_encoder = torch.nn.Embedding(
+                self.num_edge_dis * num_heads * num_heads, 1
+            )
+
         if self.use_graph_token:
             self.graph_token = torch.nn.Parameter(torch.zeros(1, num_heads, 1))
+
         self.reset_parameters()
 
     def reset_parameters(self):
         self.spatial_encoder.weight.data.normal_(std=0.02)
         self.edge_encoder.weight.data.normal_(std=0.02)
-        self.edge_dis_encoder.weight.data.normal_(std=0.02)
+        if hasattr(self, "edge_dis_encoder"):
+            self.edge_dis_encoder.weight.data.normal_(std=0.02)
         if self.use_graph_token:
             self.graph_token.data.normal_(std=0.02)
 
     def forward(self, data):
-        """Computes the bias matrix that can be induced into multi-head attention
-        via the attention mask.
-
-        Adds the tensor ``attn_bias`` to the data object, optionally accounting
-        for the graph token.
         """
-        # To convert 2D matrices to dense-batch mode, one needs to decompose
-        # them into index and value. One example is the adjacency matrix
-        # but this generalizes actually to any 2D matrix
-        spatial_types: torch.Tensor = self.spatial_encoder(data.spatial_types)
-        spatial_encodings = to_dense_adj(data.graph_index,
-                                         data.batch,
-                                         spatial_types)
-        bias = spatial_encodings.permute(BATCH_HEAD_NODE_NODE)
+        旁路读取：优先从 batch._side 取三件套（spatial_pos / attn_edge_type / edge_input）
+        产出 data.attn_bias：形状 [B*H, N(+1), N(+1)]（含 graph token 时 N+1）
+        """
+        side = getattr(data, "_side", None)
+        if side is None:
+            # 没有旁路就走你原来的实现（如果还保留了 to_dense_adj 的分支）
+            # 或者直接报错提示 DataLoader 要换成附着旁路版
+            raise RuntimeError("BiasEncoder: missing side inputs (batch._side). "
+                               "请使用附着旁路的 collate_fn 或在前向里构造 _side。")
 
-        if hasattr(data, "shortest_path_types"):
-            edge_types: torch.Tensor = self.edge_encoder(
-                data.shortest_path_types)
-            edge_encodings = to_dense_adj(data.graph_index,
-                                          data.batch,
-                                          edge_types)
+        device = data.x.device
+        spatial_pos = side['spatial_pos'].to(device)          # [B,N,N] long
+        B, N, _ = spatial_pos.shape
+        H = self.num_heads
 
-            spatial_distances = to_dense_adj(data.graph_index,
-                                             data.batch,
-                                             data.spatial_types)
-            spatial_distances = spatial_distances.float().clamp(min=1.0).unsqueeze(1)
+        # 1) 距离偏置
+        bias = self.spatial_encoder(spatial_pos).permute(0, 3, 1, 2)    # [B,H,N,N]
 
-            B, N, _, max_dist, H = edge_encodings.shape
+        # 2) 边偏置
+        if self.edge_type == "multi_hop":
+            # Graphormer 的 “平均后按距离衰减再映射” 公式
+            spatial_pos_ = spatial_pos.clone()
+            spatial_pos_[spatial_pos_ == 0] = 1
+            spatial_pos_ = torch.where(spatial_pos_ > 1, spatial_pos_ - 1, spatial_pos_)
+            ein = side['edge_input'].to(device)                          # [B,N,N,D,Fe]
+            # 统一 D：必要时裁剪
+            if self.multi_hop_max_dist > 0 and ein.size(-2) > self.multi_hop_max_dist:
+                ein = ein[:, :, :, :self.multi_hop_max_dist, :]
+                spatial_pos_ = spatial_pos_.clamp(0, self.multi_hop_max_dist)
 
-            edge_encodings = edge_encodings.permute(3, 0, 1, 2, 4).reshape(max_dist, -1, self.num_heads)
-            edge_encodings = torch.bmm(edge_encodings, self.edge_dis_encoder.weight.reshape(-1, self.num_heads, self.num_heads))
-            edge_encodings = edge_encodings.reshape(max_dist, B, N, N, self.num_heads).permute(1, 2, 3, 0, 4)
-            edge_encodings = edge_encodings.sum(-2).permute(BATCH_HEAD_NODE_NODE) / spatial_distances
-            bias += edge_encodings
+            # -1（pad）→ 0（embedding 的 padding_idx）
+            ein = ein.clamp(min=0)
+            # [B,N,N,D,Fe] --edge_encoder(mean over Fe)--> [B,N,N,D,H]
+            e = self.edge_encoder(ein).mean(-2)
+            # e = self.edge_encoder(ein)
+            D = e.size(-2)
+            # [B,N,N,D,H] -> [D, B*N*N, H]
+            e_flat = e.permute(3, 0, 1, 2, 4).reshape(D, -1, H)
+            # W: [D,H,H]
+            W = self.edge_dis_encoder.weight.reshape(-1, H, H)[:D]
+            # [D, B*N*N, H] @ [D,H,H] -> [D, B*N*N, H]
+            mixed = torch.bmm(e_flat, W).reshape(D, B, N, N, H).permute(1, 2, 3, 0, 4)
+            # sum over D, 再 / 距离（避免除 0）
+            edge_bias = (mixed.sum(-2) / (spatial_pos_.float().unsqueeze(-1) + 1e-9))\
+                        .permute(0, 3, 1, 2)                                    # [B,H,N,N]
+        else:
+            # single_hop：直接对 attn_edge_type 做嵌入并按 Fe 平均
+            aetype = side['attn_edge_type'].to(device)                          # [B,N,N,Fe]
+            edge_bias = self.edge_encoder(aetype).mean(-2).permute(0, 3, 1, 2)  # [B,H,N,N]
 
+        bias = bias + edge_bias                                                # [B,H,N,N]
+
+        # 3) graph token（如果使用）
         if self.use_graph_token:
-            bias = F.pad(bias, INSERT_GRAPH_TOKEN)
-            bias[:, :, 1:, 0] = self.graph_token
-            bias[:, :, 0, :] = self.graph_token
+            bias = F.pad(bias, (1, 0, 1, 0))                                   # [B,H,N+1,N+1]
+            t = self.graph_token.to(bias.device).view(1, H, 1)                 # [1,H,1]
+            bias[:, :, 1:, 0] += t
+            bias[:, :, 0, 1:] += t
 
-        B, H, N, _ = bias.shape
-        data.attn_bias = bias.reshape(B * H, N, N)
+        data.attn_bias = bias  # [B, H, Np, Np]
         return data
+
 
 
 def add_graph_token(data, token):
@@ -219,22 +163,14 @@ def add_graph_token(data, token):
 class NodeEncoder(torch.nn.Module):
     def __init__(self, embed_dim, num_in_degree, num_out_degree,
                  input_dropout=0.0, use_graph_token: bool = True):
-        """Implementation of the node encoder of Graphormer.
-        This encoder is based on the implementation at:
-        https://github.com/microsoft/Graphormer/tree/v1.0
-        Note that this refers to v1 of Graphormer.
-
-        Args:
-            embed_dim: The number of hidden dimensions of the model
-            num_in_degree: Maximum size of in-degree to encode
-            num_out_degree: Maximum size of out-degree to encode
-            input_dropout: Dropout applied to the input features
-            use_graph_token: If True, adds the graph token to the incoming batch.
-        """
         super().__init__()
-        self.in_degree_encoder = torch.nn.Embedding(num_in_degree, embed_dim)
-        self.out_degree_encoder = torch.nn.Embedding(num_out_degree, embed_dim)
-        self.linear = torch.nn.Linear(self.dim_in, embed_dim)
+        self.atom_encoder = torch.nn.Embedding(
+            cfg.dataset.node_encoder_num_types + 1,  # +1 for padding
+            embed_dim,
+            padding_idx=0
+        )
+        self.in_degree_encoder = torch.nn.Embedding(num_in_degree, embed_dim, padding_idx=0)
+        self.out_degree_encoder = torch.nn.Embedding(num_out_degree, embed_dim, padding_idx=0)
         self.use_graph_token = use_graph_token
         if self.use_graph_token:
             self.graph_token = torch.nn.Parameter(torch.zeros(1, embed_dim))
@@ -242,25 +178,34 @@ class NodeEncoder(torch.nn.Module):
         self.reset_parameters()
 
     def forward(self, data):
-        in_degree_encoding = self.in_degree_encoder(data.in_degrees)
-        out_degree_encoding = self.out_degree_encoder(data.out_degrees)
-        data.x =  convert_to_single_emb(data.x, offset=512)
-        data.x = self.linear(data.x) 
+        # 逻辑等同TypeDictNode
+        # x = data.x
+        # if x.dim() == 1:
+        #     x = x.unsqueeze(1)
+        # x = convert_to_single_emb(x, offset=512)  # long ids, 0 reserved for pad
+        # # —— 关键：按列求和（与官方相同）——
+        # node_feature = self.atom_encoder(x).sum(dim=-2)  # [N, C]
         if data.x.size(1) > 0:
-            data.x = data.x + in_degree_encoding + out_degree_encoding
+            data.x = data.x \
+                + self.in_degree_encoder(data.in_degrees) \
+                + self.out_degree_encoder(data.out_degrees)
         else:
-            data.x = in_degree_encoding + out_degree_encoding
+             data.x =  self.in_degree_encoder(data.in_degrees) \
+                + self.out_degree_encoder(data.out_degrees)
 
         if self.use_graph_token:
             data = add_graph_token(data, self.graph_token)
+
         data.x = self.input_dropout(data.x)
         return data
 
     def reset_parameters(self):
+        self.atom_encoder.weight.data.normal_(std=0.02)
         self.in_degree_encoder.weight.data.normal_(std=0.02)
         self.out_degree_encoder.weight.data.normal_(std=0.02)
         if self.use_graph_token:
             self.graph_token.data.normal_(std=0.02)
+
 
 
 @register_node_encoder("GraphormerBias")
@@ -268,17 +213,17 @@ class GraphormerEncoder(torch.nn.Sequential):
     def __init__(self, dim_emb, *args, **kwargs):
         encoders = [
             BiasEncoder(
-                cfg.graphormer.num_heads,
+                cfg.gt.attn_heads,
                 cfg.posenc_GraphormerBias.num_spatial_types,
                 cfg.dataset.edge_encoder_num_types,
-                cfg.graphormer.use_graph_token
+                cfg.posenc_GraphormerBias.use_graph_token
             ),
             NodeEncoder(
                 dim_emb,
                 cfg.posenc_GraphormerBias.num_in_degrees,
                 cfg.posenc_GraphormerBias.num_out_degrees,
-                cfg.graphormer.input_dropout,
-                cfg.graphormer.use_graph_token
+                cfg.gt.input_dropout,
+                cfg.posenc_GraphormerBias.use_graph_token
             ),
         ]
         if cfg.posenc_GraphormerBias.node_degrees_only:  # No attn. bias encoder

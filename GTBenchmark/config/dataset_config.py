@@ -18,6 +18,8 @@ def dataset_cfg(cfg):
     # VOC/COCO Superpixels dataset version based on SLIC compactness parameter.
     cfg.dataset.slic_compactness = 10
 
+    cfg.dataset.undirected = False
+
     # infer-link parameters (e.g., edge prediction task)
     cfg.dataset.infer_link_label = "None"
 

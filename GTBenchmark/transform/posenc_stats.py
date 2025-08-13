@@ -7,6 +7,8 @@ from numpy.linalg import eigvals
 from torch_geometric.utils import (get_laplacian, to_scipy_sparse_matrix,
                                    to_undirected, to_dense_adj, scatter)
 from torch_geometric.utils.num_nodes import maybe_num_nodes
+# from .graphormer import graphormer_pre_processing
+from .graphormer_slide import graphormer_preprocess_light
 
 
 def compute_posenc_stats(data, pe_types, is_undirected, cfg):
@@ -135,11 +137,15 @@ def compute_posenc_stats(data, pe_types, is_undirected, cfg):
         elstatic = get_electrostatic_function_encoding(undir_edge_index, N)
         data.pestat_ElstaticSE = elstatic
 
-    # if 'GraphormerBias' in pe_types:
-    #     data = graphormer_pre_processing(
-    #         data,
-    #         cfg.posenc_GraphormerBias.num_spatial_types
-    #     )
+    if 'GraphormerBias' in pe_types:
+        # data = graphormer_pre_processing(
+        #     data,
+        #     cfg.posenc_GraphormerBias.num_spatial_types
+        # )
+        data = graphormer_preprocess_light(
+            data,
+            cfg.posenc_GraphormerBias.num_spatial_types
+        )
 
     return data
 

@@ -89,6 +89,8 @@ class GTModel(torch.nn.Module):
                 batch,mask = maskGenerator.from_dense_batch(batch)
                 #TODO
         batch = maskGenerator.from_dense_batch(batch)
+
+        
         
         if self.num_virtual_nodes > 0:
             # Remove the virtual nodes

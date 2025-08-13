@@ -363,7 +363,16 @@ def set_dataset_info(dataset):
 
 #     if hasattr(dataset, 'dynamicTemporal'):
 #         cfg.share.num_splits = len(dataset)
-
+from GTBenchmark.train.side_channel import collate_graphormer_with_side, attach_side
+def collate_graphormer_attached(items):
+    # print("[DEBUG] calling collate_graphormer_attached, batch size:", len(items))
+    batch, side = collate_graphormer_with_side(
+        items,
+        max_spatial_dist=cfg.posenc_GraphormerBias.multi_hop_max_dist,     # 按你的配置改
+        undirected=cfg.dataset.undirected,
+    )
+    attach_side(batch, side)     # 把 side 存到 batch._side
+    return batch
 
 def create_dataset():
     r"""
@@ -377,19 +386,35 @@ def create_dataset():
 
     return dataset
 
-
+from GTBenchmark.transform.slide_data import collate_with_side, attach_side, SideFieldSpec
+GRAPHORMER_SIDE_SPECS = [
+    SideFieldSpec('spatial_pos',     pad_value=0),   # 距离 0/pad
+    SideFieldSpec('attn_edge_type',  pad_value=0),   # 未连接→0
+    SideFieldSpec('edge_input',      pad_value=-1),  # 路径 pad→-1
+]
 def get_loader(dataset, sampler, batch_size, shuffle=True, split='train'):
     # Try to use customized graph sampler
     func = register.sampler_dict.get(sampler, None)
     if func is not None:
         return func(dataset, batch_size=batch_size, shuffle=shuffle, split=split)
-    
-    if sampler == "full_batch" or len(dataset) > 1:
+    if sampler == "graphormer":
+        from torch.utils.data import DataLoader as torch_dataloader
+        loader_train = torch_dataloader(
+            dataset,
+            batch_size=cfg.train.batch_size,
+            shuffle=True,
+            num_workers=cfg.num_workers,
+            collate_fn=collate_graphormer_attached,
+            pin_memory=True
+        )
+
+    elif sampler == "full_batch" or len(dataset) > 1:
         loader_train = DataLoader(dataset,
                                   batch_size=batch_size,
                                   shuffle=shuffle,
                                   num_workers=cfg.num_workers,
                                   pin_memory=True)
+
     elif sampler == "neighbor":
         loader_train = NeighborSampler(
             dataset[0],

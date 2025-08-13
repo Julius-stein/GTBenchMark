@@ -17,6 +17,7 @@ from sklearn.model_selection import train_test_split
 from torch_geometric.data import (HeteroData, InMemoryDataset)
 from ogb.lsc import MAG240MDataset
 from ogb.nodeproppred import PygNodePropPredDataset
+from ogb.graphproppred import PygGraphPropPredDataset
 from torch_geometric.datasets import (DBLP, IMDB, OGB_MAG, Planetoid, MovieLens)
 from GTBenchmark.datasets.oag_dataset import OAGDataset
 from GTBenchmark.datasets.mag_dataset import MAGDataset
@@ -213,6 +214,8 @@ def load_dataset_master(format, name, dataset_dir):
     elif format == 'OGB':
         if name.startswith('ogbn') or name in ['MAG240M', 'mag-year']:
             dataset = preformat_OGB_Node(dataset_dir, name.replace('_', '-'))
+        elif name.startswith('ogbg'):
+            dataset = preformat_OGB_Graph(dataset_dir, name.replace('_', '-'))
 
         ### Link prediction datasets.
         elif name.startswith('ogbl-'):
@@ -904,4 +907,55 @@ def preformat_ZINC(dataset_dir, name):
         [ZINC(root=dataset_dir, subset=(name == 'subset'), split=split)
          for split in ['train', 'val', 'test']]
     )
+    return dataset
+
+def preformat_OGB_Graph(dataset_dir, name):
+    """Load and preformat OGB Graph Property Prediction datasets.
+
+    Args:
+        dataset_dir: path where to store the cached dataset
+        name: name of the specific OGB Graph dataset
+
+    Returns:
+        PyG dataset object
+    """
+    dataset = PygGraphPropPredDataset(name=name, root=dataset_dir)
+    s_dict = dataset.get_idx_split()
+    dataset.split_idxs = [s_dict[s] for s in ['train', 'valid', 'test']]
+
+    if name == 'ogbg-ppa':
+        # ogbg-ppa doesn't have any node features, therefore add zeros but do
+        # so dynamically as a 'transform' and not as a cached 'pre-transform'
+        # because the dataset is big (~38.5M nodes), already taking ~31GB space
+        def add_zeros(data):
+            data.x = torch.zeros(data.num_nodes, dtype=torch.long)
+            return data
+        dataset.transform = add_zeros
+    elif name == 'ogbg-code2':
+        from GTBenchmark.datasets.ogbg_code2_utils import idx2vocab, \
+            get_vocab_mapping, augment_edge, encode_y_to_arr
+        num_vocab = 5000  # The number of vocabulary used for sequence prediction
+        max_seq_len = 5  # The maximum sequence length to predict
+
+        seq_len_list = np.array([len(seq) for seq in dataset.data.y])
+        logging.info(f"Target sequences less or equal to {max_seq_len} is "
+            f"{np.sum(seq_len_list <= max_seq_len) / len(seq_len_list)}")
+
+        # Building vocabulary for sequence prediction. Only use training data.
+        vocab2idx, idx2vocab_local = get_vocab_mapping(
+            [dataset.data.y[i] for i in s_dict['train']], num_vocab)
+        logging.info(f"Final size of vocabulary is {len(vocab2idx)}")
+        idx2vocab.extend(idx2vocab_local)  # Set to global variable to later access in CustomLogger
+
+        # Set the transform function:
+        # augment_edge: add next-token edge as well as inverse edges. add edge attributes.
+        # encode_y_to_arr: add y_arr to PyG data object, indicating the array repres
+        dataset.transform = T.Compose(
+            [augment_edge,
+             lambda data: encode_y_to_arr(data, vocab2idx, max_seq_len)])
+
+        # Subset graphs to a maximum size (number of nodes) limit.
+        pre_transform_in_memory(dataset, partial(clip_graphs_to_size,
+                                                 size_limit=1000))
+
     return dataset

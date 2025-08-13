@@ -352,7 +352,7 @@ def get_GrashSAINTRandomWalkLoader(dataset, batch_size, shuffle=True, split='tra
 
     start = time.time()
     loader_train = \
-        GraphSAINTRandomWalkSampler(data.to_homogeneous(),
+        GraphSAINTRandomWalkSampler(data,
                                     batch_size=batch_size,
                                     walk_length=cfg.train.walk_length,
                                     num_steps=getattr(cfg, 'val' if split == 'test' else split).iter_per_epoch,

@@ -1,59 +1,97 @@
-out_dir: ./results/Graphormer/ogbn-molpcba
-metric_best: ap
-seed: 42
+out_dir: ./results/graphormer
+metric_best: mae
+metric_agg: argmin
+
 dataset:
-  dir: /mnt/data2/duxin/.datasets
-  format: OGB
-  name: ogbg-molpcba
+  format: PyG-ZINC
+  name: subset
   task: graph
-  task_type: classification
-  task_entity: item
+  task_type: regression
   transductive: False
-  node_encoder_num_types: 4609
-  edge_encoder_num_types: 1537
-num_threads: 24
-num_workers: 8
+  node_encoder: True
+
+  node_encoder_num_types: 28
+  # node_encoder_bn: False
+  # edge_encoder: True
+  # edge_encoder_name: TypeDictEdge
+  # 键合类型：single, double, triple, aromatic
+  edge_encoder_num_types: 4
+  # edge_encoder_bn: False
+
+posenc_GraphormerBias:
+  enable: True
+  node_degrees_only: False
+
+  # —— DGL 中的 SpatialEncoder（最短路径距离，-1 表示不连通） ——  
+  # DGL 里 shortest_dist 给出的 spd ∈ {-1,0,1,…}, 这里区分 0…19 + “-1” 共 20 类
+  num_spatial_types: 512        # 与 DGL 中 `SpatialEncoder(max_dist=511)` 行为一致，只是我们只用到前 20 距离
+  num_in_degrees: 512           # DGL 里 clamp(in_degrees+1, 0, 512) 后，每个 deg 索引到 0…63 的 embedding
+  num_out_degrees: 512           # 同上，out_degree
+
+  # —— DGL 中的 PathEncoder（多跳路径上的边特征） ——  
+  enable_path_bias: True        # 打开 PathEncoder
+  multi_hop_max_dist: 5         # DGL 里截/填 path 长度到 5 hops
+  path_edge_feat_dim: 4         # bond 特征维度（4 种键合）
+  use_graph_token: True
+
 train:
   mode: custom
-  sampler: full_batch
-  iter_per_epoch: -1
-  batch_size: 64
+  sampler: graphormer
+  batch_size: 256
   eval_period: 4
   ckpt_period: 100
   tqdm: True
   persistent_workers: True
   pin_memory: True
-val:
-  sampler: full_batch
-  iter_per_epoch: -1
-  tqdm: True
-model:
-  type: Graphormer
-  loss_fun: cross_entropy
-optim:
-  batch_accumulation: 1
-  clip_grad_norm: True
-  optimizer: adamW
-  weight_decay: 0.0
-  base_lr: 3e-4
-  #lr_end: 1e-9
-  max_epoch: 11
-  scheduler: polynomial_with_warmup
-  num_warmup_epochs: 1
-gt:
-  layer_type: Graphormer_Layer
-  attn_type: TorchFullAttention
-  layers: 18
-  dim_hidden: 1024
-  dropout: 0.1    
-  attn_dropout: 0.3
-  ffn_dim: 1024
-  attn_heads: 8
-  use_graph_token: True
-  input_dropout: 0.0
-  
-posenc_GraphormerBias: 
-  num_in_degrees: 5
-  num_out_degrees: 5
-  node_degrees_only: False
 
+val:
+  sampler: graphormer
+
+model:
+  type: GTModel
+  loss_fun: l1
+  edge_decoding: dot
+  graph_pooling: graph_token
+
+gt:
+  layers: 12
+  attn_heads: 8
+  dim_hidden: 96
+  dropout: 0.0
+  attn_dropout: 0.1
+  input_dropout: 0.1
+  ffn_dim: 96
+  #,GraphormerBias
+  node_encoder_list: [TypeDictNode,GraphormerBias]
+  edge_encoder_list: []
+  encoder_type : cascade #cascade or concat
+  attn_type: GeneralAttention
+  prepend_norm: True
+  batch_norm: False
+  layer_norm: True
+  residual: True
+  head: reg_graph
+  # 把 path 编码也传给内部的 GraphormerLayer
+  # path_max_len: 5              # 对应 multi_hop_max_dist
+  # path_feat_dim: 4             # 对应 path_edge_feat_dim
+
+gnn:
+  head: graphormer_graph
+  layers_pre_mp: 0
+  layers_post_mp: 3
+
+  dim_inner: 80     # 必须和 embed_dim 保持一致
+  batchnorm: True
+  act: relu
+  dropout: 0.0
+  agg: mean
+  normalize_adj: False
+
+optim:
+  clip_grad_norm: True
+  clip_grad_norm_value: 5.0
+  optimizer: adam
+  weight_decay: 0.01
+  base_lr: 0.0002
+  max_epoch: 1000
+  scheduler: polynomial_with_warmup

@@ -23,10 +23,12 @@ def set_cfg_posenc(cfg):
     cfg.posenc_HKdiagSE = CN()
     cfg.posenc_ElstaticSE = CN()
     cfg.posenc_EquivStableLapPE = CN()
+    cfg.posenc_GraphormerBias = CN()
+
 
     # Common arguments to all PE types.
     for name in ['posenc_LapPE', 'posenc_SignNet', 'posenc_RWSE', 'posenc_Hetero_RWSE',
-                 'posenc_Homo_GNN', 'posenc_Hetero_Label',
+                 'posenc_Homo_GNN', 'posenc_Hetero_Label','posenc_GraphormerBias',
                  'posenc_Hetero_Metapath', 'posenc_Hetero_Node2Vec', 'posenc_Hetero_TransE',
                  'posenc_Hetero_ComplEx', 'posenc_Hetero_DistMult', 'posenc_Hetero_GNN',
                  'posenc_HKdiagSE', 'posenc_ElstaticSE']:
@@ -95,6 +97,28 @@ def set_cfg_posenc(cfg):
         # If set, it will be executed via `eval()` and override posenc.kernel.times
         pecfg.kernel.times_func = ''
 
+    # cfg.graphormer = CN()
+    # cfg.graphormer.num_layers = 6
+    # cfg.graphormer.embed_dim = 80
+    # cfg.graphormer.num_heads = 4
+    # cfg.graphormer.dropout = 0.0
+    # cfg.graphormer.attention_dropout = 0.0
+    # cfg.graphormer.mlp_dropout = 0.0
+    # cfg.graphormer.input_dropout = 0.0
+    # cfg.graphormer.use_graph_token = True
+    
+    cfg.posenc_GraphormerBias.node_degrees_only = False
+    cfg.posenc_GraphormerBias.num_spatial_types = 0
+    cfg.posenc_GraphormerBias.num_in_degrees = 20
+    cfg.posenc_GraphormerBias.num_out_degrees = 20
+    cfg.posenc_GraphormerBias.use_graph_token = True
+    
+
+
+# === multi‑hop path bias (match DGL PathEncoder) ===
+    cfg.posenc_GraphormerBias.enable_path_bias = True
+    cfg.posenc_GraphormerBias.multi_hop_max_dist = 5    # truncate/pad paths to length 5
+    cfg.posenc_GraphormerBias.path_edge_feat_dim = 4    # 4 bond types: single,double,triple,aromatic
     # Override default, electrostatic kernel has fixed set of 10 measures.
     cfg.posenc_ElstaticSE.kernel.times_func = 'range(10)'
 

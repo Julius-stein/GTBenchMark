@@ -22,25 +22,24 @@ class Fullpair(nn.Module):
                 
 
     def forward(self, batch):
-        # x: (N, d) -- >(B,N,d)
-        if hasattr(batch,"num_graphs"):
+        if hasattr(batch, "num_graphs"):
             x = batch.x
-            if self.Dmask == None:
-                batch.x,self.Dmask,self.Gindex = to_dense_batch(x,batch.batch,max_num_nodes=self.max_num_nodes,batch_size=self.batch_size)
-                
+            if self.Dmask is None:
+                batch.x, self.Dmask, self.Gindex = to_dense_batch(
+                    x, batch.batch, batch_size=self.batch_size
+                )
             else:
-                # 已有 x, idx, 并已知 batch_size, max_num_nodes, fill_value, device,省去计算过程
-                # 1) 先构造一个全 fill_value 的扁平张量
                 dense_flat = torch.full((self.flat_size, self.F), 0.0,
                                         dtype=x.dtype, device=x.device)
                 dense_flat[self.Gindex] = x
                 batch.x = dense_flat.view(self.batch_size, self.max_num_nodes, self.F)
 
-            attn_mask = self.Dmask.unsqueeze(1).unsqueeze(2)       # [B, 1, 1, N]
-            attn_mask = attn_mask.expand(-1,1,self.max_num_nodes, -1)  
+            # Dmask: [B, N]，True=有效节点
+            key_pad = (~self.Dmask).unsqueeze(1).unsqueeze(2).float()  # [B,1,1,N]
+            attn_mask = key_pad * (-1e9)                               # [B,1,1,N]（additive）
+            attn_mask = attn_mask.expand(-1, 1, self.Dmask.size(1), -1)  # -> [B,1,N,N]
         else:
             attn_mask = None
-
 
         return batch, attn_mask
     

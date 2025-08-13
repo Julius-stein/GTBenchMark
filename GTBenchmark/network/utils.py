@@ -33,12 +33,19 @@ class FeatureEncoder(torch.nn.Module):
                 tmp-=dim_pe
                 dim_out.append(tmp)
         Encoder = []
+        if cfg.gt.encoder_type == "concatenate":
+            for name in cfg.gt.node_encoder_list:
+                Encoder.append(register.node_encoder_dict[name](dim_out.pop()))
+            for name in cfg.gt.edge_encoder_list:
+                Encoder.append(register.edge_encoder_dict[name](dim_emb))
+            self.encoder = nn.Sequential(*Encoder)
 
-        for name in cfg.gt.node_encoder_list:
-            Encoder.append(register.node_encoder_dict[name](dim_out.pop()))
-        for name in cfg.gt.edge_encoder_list:
-            Encoder.append(register.edge_encoder_dict[name](dim_emb))
-        self.encoder = nn.Sequential(*Encoder)
+        elif cfg.gt.encoder_type == "cascade":
+            for name in cfg.gt.node_encoder_list:
+                Encoder.append(register.node_encoder_dict[name](dim_emb))
+            for name in cfg.gt.edge_encoder_list:
+                Encoder.append(register.edge_encoder_dict[name](dim_emb))
+            self.encoder = nn.Sequential(*Encoder)
 
     def forward(self, batch):
         return self.encoder(batch)

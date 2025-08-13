@@ -1,0 +1,7 @@
+[build-system]
+requires = ["setuptools>=68", "wheel", "Cython>=3.0", "numpy>=1.21"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "GTBenchmark"   # 发行名随便，但别叫 gf_algos 省得混淆
+version = "0.0.1"

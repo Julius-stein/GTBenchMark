@@ -42,6 +42,9 @@ def set_cfg_gt(cfg):
     # Dropout for input.
     cfg.gt.input_dropout = 0.0
 
+    # norm-first or traditional Transofrmer post LN
+    cfg.gt.prepend_norm = True
+
     # Dropout in feed-forward module.
     cfg.gt.dropout = 0.0
 
@@ -66,6 +69,7 @@ def set_cfg_gt(cfg):
     
     cfg.gt.act = 'relu'
 
+    cfg.gt.encoder_type = 'concatenate'
 
     # BigBird model/GPS-BigBird layer.
     # cfg.gt.bigbird = CN()
