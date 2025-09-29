@@ -1,6 +1,7 @@
 out_dir: ./results/test
 metric_agg: argmin
 metric_best: mae
+num_workers: 16
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: PyG-ZINC
@@ -24,12 +25,12 @@ train:
   sampler: full_batch
 gnn:
   mode: GPS
-  layer_type: GCN
+  layer_type: GINE
   act: gelu
   agg: mean
   batchnorm: true
-  dim_inner: 64
-  dropout: 0.2
+  dim_inner: 96
+  dropout: 0.0
   layers_post_mp: 1
   layers_pre_mp: 0
   normalize_adj: false
@@ -37,14 +38,14 @@ gnn:
 gt:
   attn_dropout: 0.5
   batch_norm: false
-  dim_hidden: 64
+  dim_hidden: 96
   dropout: 0.5
   layer_norm: true
   layer_type: Transformer
   attn_type: GeneralAttention
-  layers: 2
-  attn_heads: 4
-  ffn_dim: 128
+  layers: 12
+  attn_heads: 8
+  ffn_dim: 96
   act : gelu
   head: reg_graph
   # encoder_type : concat
@@ -70,15 +71,15 @@ posenc_GraphormerBias:
   num_spatial_types: 20
   use_graph_token: false
 posenc_LapPE:
-  dim_pe: 4
+  dim_pe: 8
   eigen:
     eigvec_norm: L2
     laplacian_norm: none
-    max_freqs: 4
+    max_freqs: 8
   enable: true
   layers: 2
   model: DeepSet
-  n_heads: 4
+  # n_heads: 4
   raw_norm_type: none
 perf:
   mode: "off"

@@ -62,7 +62,7 @@ gt:
   attn_dropout: 0.1
   input_dropout: 0.1
   activation_dropout: 0.1
-  ffn_dim: 80
+  ffn_dim: 96
   #,GraphormerBias
   node_encoder_list: [TypeDictNode,GraphormerBias]
   edge_encoder_list: []
@@ -84,7 +84,7 @@ gnn:
   layers_pre_mp: 0
   layers_post_mp: 3
 
-  dim_inner: 80    # 必须和 embed_dim 保持一致
+  dim_inner: 96    # 必须和 embed_dim 保持一致
   batchnorm: True
   act: relu
   dropout: 0.0

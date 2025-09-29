@@ -91,7 +91,7 @@ class GPSLayer(nn.Module):
             self.local_model = pygnn.GENConv(dim_h, dim_h)
         elif local_gnn_type == 'GINE':
             gin_nn = nn.Sequential(Linear_pyg(dim_h, dim_h),
-                                   self.activation(),
+                                   self.activation,
                                    Linear_pyg(dim_h, dim_h))
             if self.equivstable_pe:  # Use specialised GINE layer for EquivStableLapPE.
                 self.local_model = GINEConvESLapPE(gin_nn)

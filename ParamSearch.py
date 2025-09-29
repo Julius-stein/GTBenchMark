@@ -73,7 +73,7 @@ def parse_search_args():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--n-trials", type=int, default=36)
     parser.add_argument("--study-name", type=str, default="gt_optuna_search")
-    parser.add_argument("--param-limit", type=int, default=2000000,
+    parser.add_argument("--param-limit", type=int, default=20000000,
                         help="Max number of model params allowed, -1 means no limit")
     args2, _ = parser.parse_known_args()
     for k, v in vars(args2).items():
@@ -84,10 +84,10 @@ def _set_search_params(trial: optuna.trial.Trial) -> Dict[str, Any]:
     hp = {}
     hp["optim.base_lr"] = trial.suggest_float("optim.base_lr", 1e-5, 1e-3, log=True)
     hp["optim.weight_decay"] = trial.suggest_float("optim.weight_decay", 1e-6, 1e-3, log=True)
-    hp["gt.dim_hidden"] = trial.suggest_categorical("gt.dim_hidden", [64,80, 128,256])
-    hp["gt.ffn_dim"] = trial.suggest_categorical("gt.ffn_dim", [64, 80,128,256])
-    hp["gt.layers"] = trial.suggest_int("gt.layers", 1, 10)
-    hp["gt.attn_heads"] = trial.suggest_categorical("gt.attn_heads", [1,2, 4, 8])
+    # hp["gt.dim_hidden"] = trial.suggest_categorical("gt.dim_hidden", [64,80, 128,256])
+    # hp["gt.ffn_dim"] = trial.suggest_categorical("gt.ffn_dim", [64, 80,128,256])
+    # hp["gt.layers"] = trial.suggest_int("gt.layers", 1, 10)
+    # hp["gt.attn_heads"] = trial.suggest_categorical("gt.attn_heads", [1,2, 4, 8])
     hp["gt.dropout"] = trial.suggest_float("gt.dropout", 0.0, 0.6)
     hp["gt.attn_dropout"] = trial.suggest_float("gt.attn_dropout", 0.0, 0.8)
     hp["optim.clip_grad_norm_value"] = trial.suggest_float("optim.clip_grad_norm_value", 0.2, 1.0)
