@@ -7,3 +7,4 @@ results/
 **/__pycache__/
 .vscode/
 .git/
+logdir/
