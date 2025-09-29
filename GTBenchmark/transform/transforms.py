@@ -2,10 +2,11 @@ import logging
 
 import torch
 from torch_geometric.utils import subgraph
+from GTBenchmark.transform.graphormer import build_pair_store_ragged,make_collate_from_ragged
 from tqdm import tqdm
 
 
-def pre_transform_in_memory(dataset, transform_func, show_progress=False):
+def pre_transform_in_memory(dataset, transform_func, show_progress=False,side=False):
     """Pre-transform already loaded PyG dataset object.
 
     Apply transform function to a loaded PyG dataset object so that
@@ -23,17 +24,23 @@ def pre_transform_in_memory(dataset, transform_func, show_progress=False):
     """
     if transform_func is None:
         return dataset
-
-    data_list = [transform_func(dataset.get(i))
-                 for i in tqdm(range(len(dataset)),
+    data_list=[]
+    for i in tqdm(range(len(dataset)),
                                disable=not show_progress,
                                mininterval=10,
-                               miniters=len(dataset)//20)]
-    data_list = list(filter(None, data_list))
+                               miniters=len(dataset)//20):
+        data = transform_func(dataset.get(i))
+        data.sample_idx = torch.tensor([i])
+        data_list.append(data) 
 
-    dataset._indices = None
-    dataset._data_list = data_list
-    dataset.data, dataset.slices = dataset.collate(data_list)
+    data_list = list(filter(None, data_list))
+    if side:
+        from GTBenchmark.utils.side_data import build_and_attach_global, global_collate
+        side = build_and_attach_global(dataset, data_list) 
+    else:
+        dataset._indices = None
+        dataset._data_list = data_list
+        dataset.data, dataset.slices = dataset.collate(data_list)
 
 
 def typecast_x(data, type_str):

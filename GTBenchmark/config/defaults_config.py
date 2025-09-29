@@ -78,6 +78,7 @@ def extended_cfg(cfg):
     # LSGNN hyperparameter
     cfg.gnn.A_embed = True
 
+
     cfg.gnn.batch_norm = False
     cfg.gnn.layer_norm = False
 
@@ -89,4 +90,9 @@ def extended_cfg(cfg):
     cfg.gnn.output_l2_norm = False
     cfg.gnn.jumping_knowledge = False
 
+    # GT&MPNN
+    cfg.gnn.mode = "off"
+    cfg.gnn.layer_type = "GCN"
+
+    
     cfg.model.loss_fun_weight = []

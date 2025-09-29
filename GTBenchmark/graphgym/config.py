@@ -60,7 +60,7 @@ def set_cfg(cfg):
     cfg.tensorboard_agg = True
 
     # Additional num of worker for data loading
-    cfg.num_workers = 0
+    cfg.num_workers = 16
 
     # Max threads used by PyTorch
     cfg.num_threads = 6

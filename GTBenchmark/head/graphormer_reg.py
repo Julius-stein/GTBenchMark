@@ -1,6 +1,7 @@
 # readouthead_regression.py
 import torch
 import torch.nn as nn
+from GTBenchmark.graphgym.config import cfg
 from GTBenchmark.graphgym.register import register_head
 from GTBenchmark.transform.graph2dense import to_dense_batch
 
@@ -8,6 +9,12 @@ def graph_token_pooling(x, batch):
     # x: (N,C), batch: (N,)
     x, _, _ = to_dense_batch(x, batch)  # -> (B, N', C)
     return x[:, 0, :]                   # 取第 0 个（graph token）
+
+def masked_mean_pooling(x, batch):
+    # x: (N,C), batch: (N,)
+    x_dense, mask, _ = to_dense_batch(x, batch)           # (B, N_max, C), (B, N_max)
+    denom = mask.sum(dim=1, keepdim=True).clamp(min=1).to(x_dense.dtype)  # (B,1)
+    return (x_dense * mask.unsqueeze(-1)).sum(dim=1) / denom  
 
 @register_head('reg_graph')
 class GraphormerRegressionHead(nn.Module):
@@ -38,7 +45,10 @@ class GraphormerRegressionHead(nn.Module):
 
     def forward(self, batch):
         x = self.ln(batch.x)
-        g = self.pool(x, batch.batch)   # (B, C)
+        if cfg.posenc_GraphormerBias.use_graph_token:
+            g = self.pool(x, batch.batch)   # (B, C)
+        else:
+             g = masked_mean_pooling(x, batch.batch)
         pred = self.fc(g)               # (B, 1)
 
         # 反标准化（若训练时对 y 做了标准化，这里把输出还原）

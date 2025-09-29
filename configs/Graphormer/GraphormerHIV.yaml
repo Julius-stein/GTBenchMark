@@ -1,0 +1,87 @@
+# ==== Graphormer · MolHIV (train from scratch) ====
+out_dir: ./results/Graphormer_HIV_scratch
+metric_best: auc
+metric_agg: argmax
+
+dataset:
+  format: OGB
+  name: ogbg-molhiv
+  task: graph
+  task_type: classification          # ← 分类任务
+  transductive: False
+  # split: scaffold                    # ← Mol 类常用 scaffold split
+  node_encoder: True
+  node_encoder_num_types: 100        # ← 足够覆盖原子类型上限即可
+  # edge_encoder 仍由 Graphormer 的 PathBias 使用 bond 类型
+  edge_encoder_num_types: 100
+
+posenc_GraphormerBias:
+  enable: True
+  node_degrees_only: False
+  # SPD/Path 设置（与你 ZINC 基本一致，略收紧 multi-hop）
+  num_spatial_types: 20
+  num_in_degrees: 64
+  num_out_degrees: 64
+  enable_path_bias: True
+  multi_hop_max_dist: 5              # ← 常见做法：最短路截到 5 hops
+  path_edge_feat_dim: 4
+  use_graph_token: True
+
+train:
+  mode: custom
+  sampler: full_batch
+  batch_size: 64                   # ← MolHIV 从零训建议小一点的 batch
+  eval_period: 1
+  ckpt_period: 50
+  tqdm: True
+  persistent_workers: True
+  pin_memory: True
+
+val:
+  sampler: full_batch
+
+model:
+  type: GTModel
+  loss_fun: cross_entropy           # ← 二分类：1 维 logit + BCEWithLogits
+  edge_decoding: dot
+  graph_pooling: graph_token
+
+gt:
+  layers: 12
+  attn_heads: 32
+  dim_hidden: 768                    # ← 比 ZINC 稍大，分类更稳
+  ffn_dim: 768
+  dropout: 0.1
+  attn_dropout: 0.1
+  input_dropout: 0.0
+  activation_dropout: 0.0
+  node_encoder_list: [TypeDictNode, GraphormerBias]
+  edge_encoder_list: []
+  encoder_type: cascade
+  attn_type: GeneralAttention
+  prepend_norm: True
+  batch_norm: False
+  layer_norm: True
+  residual: True
+  act: gelu
+  head: reg_graph                    # ← 用你现有的回归头输出 1 维 logit
+
+gnn:
+  head: graphormer_graph
+  layers_pre_mp: 0
+  layers_post_mp: 2
+  dim_inner: 256                     # ← 与 dim_hidden 对齐
+  batchnorm: True
+  act: relu
+  dropout: 0.0
+  agg: mean
+  normalize_adj: False
+
+optim:
+  optimizer: adamW
+  base_lr: 2.0e-4
+  weight_decay: 0.01
+  clip_grad_norm: True
+  clip_grad_norm_value: 5.0
+  max_epoch: 200
+  scheduler: polynomial_with_warmup  # 你框架里已接好这个

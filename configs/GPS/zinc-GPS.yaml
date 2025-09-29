@@ -1,0 +1,84 @@
+out_dir: ./results/test
+metric_agg: argmin
+metric_best: mae
+dataset:
+  dir: /mnt/data2/duxin/.datasets
+  format: PyG-ZINC
+  name: subset
+  node_encoder: true
+  node_encoder_bn: false
+  split_mode: standard
+  node_encoder_num_types: 28
+  edge_encoder_num_types: 4
+  task: graph
+  task_type: regression
+  transductive: false
+train:
+  enable_ckpt: false
+  eval_period: 5
+  batch_size: 256
+  mode: custom
+  tqdm: True
+  persistent_workers: True
+  pin_memory: True
+  sampler: full_batch
+gnn:
+  mode: GPS
+  layer_type: GCN
+  act: gelu
+  agg: mean
+  batchnorm: true
+  dim_inner: 64
+  dropout: 0.2
+  layers_post_mp: 1
+  layers_pre_mp: 0
+  normalize_adj: false
+
+gt:
+  attn_dropout: 0.5
+  batch_norm: false
+  dim_hidden: 64
+  dropout: 0.5
+  layer_norm: true
+  layer_type: Transformer
+  attn_type: GeneralAttention
+  layers: 2
+  attn_heads: 4
+  ffn_dim: 128
+  act : gelu
+  head: reg_graph
+  # encoder_type : concat
+  node_encoder_list: ['TypeDictNode','LapPE']
+  edge_encoder_list: ['TypeDictEdge']
+
+model:
+  edge_decoding: dot
+  loss_fun: l1
+  type: GTModel
+optim:
+  base_lr: 0.0004
+  clip_grad_norm: true
+  max_epoch: 2000
+  num_warmup_epochs: 100
+  optimizer: adamW
+  scheduler: cosine_with_warmup
+  clip_grad_norm_value: 0.5
+  weight_decay: 6e-4
+posenc_GraphormerBias:
+  enable: false
+  node_degrees_only: true
+  num_spatial_types: 20
+  use_graph_token: false
+posenc_LapPE:
+  dim_pe: 4
+  eigen:
+    eigvec_norm: L2
+    laplacian_norm: none
+    max_freqs: 4
+  enable: true
+  layers: 2
+  model: DeepSet
+  n_heads: 4
+  raw_norm_type: none
+perf:
+  mode: "off"

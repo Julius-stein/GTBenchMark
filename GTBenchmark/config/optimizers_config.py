@@ -20,9 +20,20 @@ def extended_optim_cfg(cfg):
     # ReduceLROnPlateau: Lower bound on the learning rate
     cfg.optim.min_lr = 0.0
 
-    # For schedulers with warm-up phase, set the warm-up number of epochs
+    # For schedulers with warm-up phase, set the warm-up number of epochs or step
+    cfg.optim.warmup_updates = 500
     cfg.optim.num_warmup_epochs = 50
 
     # Clip gradient norms while training
     cfg.optim.clip_grad_norm = False
     cfg.optim.clip_grad_norm_value = 1.0
+
+    # For Adam custom beta
+    cfg.optim.adam_beta1 = 0.9
+    cfg.optim.adam_beta2 = 0.999
+
+    # For step scheduler with max steps
+    cfg.optim.total_num_updates = 200000000
+
+    cfg.optim.end_lr = 1.0e-9
+    cfg.optim.power = 1.0

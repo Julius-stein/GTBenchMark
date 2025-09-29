@@ -46,6 +46,7 @@ class FeatureEncoder(torch.nn.Module):
             for name in cfg.gt.edge_encoder_list:
                 Encoder.append(register.edge_encoder_dict[name](dim_emb))
             self.encoder = nn.Sequential(*Encoder)
+            
 
     def forward(self, batch):
         return self.encoder(batch)

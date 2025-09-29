@@ -5,45 +5,49 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn.functional import scaled_dot_product_attention
 from torch.nn.attention import sdpa_kernel, SDPBackend
+from GTBenchmark.graphgym.config import cfg
 from contextlib import nullcontext
 from typing import Optional
-
+from torch.nn.attention.flex_attention import flex_attention as  _flex_attention
 _BACKEND_MAP = {
     "auto":      None,
     "cudnn":     SDPBackend.CUDNN_ATTENTION,
     "flash":     SDPBackend.FLASH_ATTENTION,
     "efficient": SDPBackend.EFFICIENT_ATTENTION,
     "math":      SDPBackend.MATH,
+    "flex":      "flex",
 }
+
+
 
 def _to_additive_from_full_mask(full_mask: Tensor, Np: int) -> Tensor:
     """
     full_mask: [B,1,N,N]，bool(True=keep) 或 float(0/-inf)
     返回：     [B,1,Np,Np] 的 additive 浮点掩码（与 graph token 对齐）
     """
-    assert full_mask.dim() == 4 and full_mask.size(1) == 1
+    assert full_mask.dim() == 4
     B, _, N, _ = full_mask.shape
     if full_mask.dtype == torch.bool:
-        add = torch.zeros_like(full_mask, dtype=torch.float)
+        add = torch.zeros_like(full_mask, dtype=torch.float, device=full_mask.device)
         add = add.masked_fill(~full_mask, float('-inf'))
     else:
-        add = full_mask
-
+        add = full_mask if full_mask.device else full_mask
     if Np == N + 1:
-        add = F.pad(add, (1, 0, 1, 0), value=0.0)  # 给 graph token 左上补 0 行列
+        add = F.pad(add, (1, 0, 1, 0), value=0.0)
     elif Np != N:
         raise RuntimeError(f"Padding mask size mismatch: full N={N}, attn N'={Np}")
     return add  # [B,1,Np,Np]
 
-
-import GTBenchmark.graphgym.register as register
 from GTBenchmark.graphgym.register import register_layer
 
 @register_layer('GeneralAttention')
 class GeneralAttn(nn.Module):
     """
-    概念上“分离”：结构偏置 E 放 batch.attn_bias，padding mask 从 Fullpair 进来；
-    实现上当前 SDPA 仍需 additive mask -> 在层内临时融合（E + mask），未来换 Flex-Attn 直接传分离量即可。
+    - return_attn_weights=True 时固定走 math 分支并返回 (out, attn)
+    - Flex: 用 score_mod 注入结构偏置 E 与 additive（score_mod 内无条件分支）
+            同时 **传入 block_mask**（从 batch.flex_block_mask 读取） // NEW
+    - SDPA: 融合成 additive mask -> scaled_dot_product_attention
+    - Math: 纯手算（scores/softmax/dropout），带权重路径共用
     """
     def __init__(
         self,
@@ -51,8 +55,9 @@ class GeneralAttn(nn.Module):
         num_heads: int,
         dropout_p: float = 0.0,
         x_name: str = 'x',
-        bias_name: str = 'attn_bias',   # BiasEncoder 写入到 batch.attn_bias（[B*H,Np,Np] 或 [B,H,Np,Np]）
-        backend: str = "auto",
+        bias_name: str = 'attn_bias',     # [B*H,Np,Np] 或 [B,H,Np,Np]
+        backend: str = "auto",            # auto / flex / efficient / flash / cudnn / math
+        return_attn_weights: bool = False
     ):
         super().__init__()
         assert embed_dim % num_heads == 0
@@ -61,20 +66,40 @@ class GeneralAttn(nn.Module):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
-        self.dropout_p = dropout_p
+        self.dropout_p = float(dropout_p)
+        self._scale = 1.0 / math.sqrt(self.head_dim)
+        self.return_attn_weights = bool(return_attn_weights)
+
         if backend not in _BACKEND_MAP:
             raise ValueError(f"Unknown backend '{backend}', valid keys: {list(_BACKEND_MAP)}")
         self.backend = backend
 
-        self.q_proj = nn.Linear(embed_dim, embed_dim)
-        self.k_proj = nn.Linear(embed_dim, embed_dim)
-        self.v_proj = nn.Linear(embed_dim, embed_dim)
-        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        # ---- 静态确定后端，减少运行期分支 ----
+        cfg.share.can_flex = (self.dropout_p == 0.0) and cfg.gt.use_flex
+        if self.backend == "auto":
+            self._use_flex = cfg.share.can_flex 
+        else:
+            self._use_flex = False
 
-    def _reshape_bias(self, attn_bias: Tensor, B: int, H: int, Np: int, device, dtype):
-        """
-        支持 [B*H,Np,Np] 或 [B,H,Np,Np]，统一成 [B,H,Np,Np]（float）。
-        """
+        if self._use_flex or self.backend == "math":
+            self._sdpa_enum = None
+        else:
+            chosen = self.backend if self.backend != "auto" else "efficient"
+            self._sdpa_enum = _BACKEND_MAP.get(chosen, SDPBackend.EFFICIENT_ATTENTION)
+
+        self.in_proj  = nn.Linear(embed_dim, 3 * embed_dim, bias=True)
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        self._drop = nn.Dropout(self.dropout_p) if self.dropout_p > 0 else None
+
+        # 绑定 forward 实现
+        if self.return_attn_weights:
+            self.forward = self._forward_with_weights  # type: ignore[assignment]
+        else:
+            self.forward = self._forward_no_weights    # type: ignore[assignment]
+
+    # ------------- helpers -------------
+    @staticmethod
+    def _reshape_bias(attn_bias: Tensor, B: int, H: int, Np: int) -> Tensor:
         if attn_bias.dim() == 3:
             if attn_bias.size(0) != B * H:
                 raise RuntimeError(f"attn_bias size[0]={attn_bias.size(0)} != B*H={B*H}")
@@ -85,81 +110,132 @@ class GeneralAttn(nn.Module):
             E = attn_bias
         else:
             raise RuntimeError(f"attn_bias dim={attn_bias.dim()} not in {{3,4}}")
-        return E.to(device=device, dtype=dtype)  # [B,H,Np,Np]
+        return E
 
-    def _fuse_for_sdpa(self, B: int, Np: int, H: int,
-                       pad_mask: Optional[Tensor], attn_bias: Optional[Tensor],
-                       device, dtype) -> Optional[Tensor]:
-        """
-        SDPA 需要一个 additive mask：把 padding 的 full mask（[B,1,N,N]）与结构偏置 E（[B*H或B,H,Np,Np]）
-        在这里**临时相加**成 [B,H,Np,Np]。将来切 Flex-Attn 就把这一段改成“原样传 E 与 mask”即可。
-        """
-        fused = None
-        if attn_bias is not None:
-            fused = attn_bias  # 已经是 [B,H,Np,Np]
+    @staticmethod
+    def _get_cached_additive(batch, pad_mask: Optional[Tensor], Np: int):
+        if pad_mask is None:
+            return None
+        cache = getattr(batch, "_attn_cache", None)
+        if cache is None:
+            cache = {}
+            setattr(batch, "_attn_cache", cache)
+        key = (id(pad_mask), Np)
+        add = cache.get(key, None)
+        if add is None:
+            add = _to_additive_from_full_mask(pad_mask, Np)  # [B,1,Np,Np]
+            cache[key] = add
+        return add
 
-        if pad_mask is not None:
-            add = _to_additive_from_full_mask(pad_mask.to(device), Np)   # [B,1,Np,Np]
-            add = add.expand(B, H, Np, Np)
-            fused = add if fused is None else fused + add
+    @staticmethod
+    def _build_scores(Q: Tensor, K: Tensor, fused_bias: Optional[Tensor]) -> Tensor:
+        scores = torch.matmul(Q, K.transpose(-2, -1))
+        if fused_bias is not None:
+            scores = scores + fused_bias
+        return scores
 
-        if fused is not None:
-            fused = fused.to(device=device, dtype=dtype)
-        return fused  # [B,H,Np,Np] or None
+    # ---- NEW: 把 block_mask 也传进来 ----
+    def flex_attention(self, Q, K, V, fused_bias: Optional[Tensor], block_mask=None) -> Tensor:
 
-    def forward(self, batch, mask: Optional[Tensor] = None, return_attn_weights: bool = False):
-        """
-        mask: Fullpair 产生的 padding full mask（[B,1,N,N]，bool 或 0/-inf）
-        结构偏置：从 batch.attn_bias 读取（[B*H,Np,Np] or [B,H,Np,Np]），概念上与 mask 分离；
-        目前为了 SDPA 在层内融合成 additive mask，未来切 Flex-Attn 可直接传分离量。
-        """
-        x: Tensor = getattr(batch, self.x_name)  # [B,Np,D]
+        H = self.num_heads
+        B, _, Np, _ = Q.shape
+
+        if fused_bias is None:
+            def noop(score, b, h, q_idx, k_idx):
+                return score
+            return _flex_attention(Q, K, V,
+                                   score_mod=noop,
+                                   block_mask=block_mask,  # <<< 传入
+                                   scale=self._scale,
+                                   kernel_options=None)
+
+        fused_flat = fused_bias.reshape(-1)
+
+        def score_mod(score, b, h, q_idx, k_idx):
+            lin = (((b * H) + h) * Np + q_idx) * Np + k_idx
+            return score + fused_flat[lin]
+
+        return _flex_attention(Q, K, V,
+                               score_mod=score_mod,
+                               block_mask=block_mask,      # <<< 传入
+                               scale=self._scale,
+                               kernel_options=None)
+
+    # ------------- 公共准备步骤 -------------
+    def _prep_qkv_bias(self, batch, mask: Optional[Tensor]):
+        x: Tensor = getattr(batch, self.x_name)     # [B,Np,D_model]
         B, Np, _ = x.shape
         H, D = self.num_heads, self.head_dim
-        device, dtype = x.device, x.dtype
-        _USE_MATH = True
 
-        # QKV + 分头
-        Q = self.q_proj(x).view(B, Np, H, D).transpose(1, 2).contiguous()
-        K = self.k_proj(x).view(B, Np, H, D).transpose(1, 2).contiguous()
-        V = self.v_proj(x).view(B, Np, H, D).transpose(1, 2).contiguous()
+        qkv = self.in_proj(x)
+        q, k, v = qkv.split(self.embed_dim, dim=-1)
+        Q = q.view(B, Np, H, D).transpose(1, 2).contiguous()
+        K = k.view(B, Np, H, D).transpose(1, 2).contiguous()
+        V = v.view(B, Np, H, D).transpose(1, 2).contiguous()
 
-        # 读取结构偏置（不在外部相加）
+        return Q, K, V, B, Np, H, D
+
+    # ------------- 两条 forward 实现 -------------
+    def _forward_no_weights(self, batch, mask: Optional[Tensor] = None):
+        Q, K, V, B, Np, H, D = self._prep_qkv_bias(batch, mask)
+        
         raw_bias = getattr(batch, self.bias_name, None)
-        E = None
-        if raw_bias is not None:
-            E = self._reshape_bias(raw_bias, B, H, Np, device, dtype)   # [B,H,Np,Np]
-
-        # —— 目前：为 SDPA 临时融合成一个 additive mask —— #
-        additive_mask = self._fuse_for_sdpa(B, Np, H, mask, E, device, dtype)
-
-        # 有 mask 时，禁用 flash/cudnn，更稳
-        backend = "efficient" if additive_mask is not None else self.backend
-        enum = _BACKEND_MAP.get(backend, None)
-        ctx = sdpa_kernel([enum]) if enum is not None else nullcontext()
-
-        if not return_attn_weights and not _USE_MATH:
-            with ctx:
-                out = scaled_dot_product_attention(
-                    Q, K, V,
-                    attn_mask=additive_mask,   # ← 临时融合（E + mask）
-                    dropout_p=self.dropout_p,
-                    is_causal=False,
-                )
+        E = self._reshape_bias(raw_bias, B, H, Np) if raw_bias is not None else None
+        #在这个地方就应该分支flex了
+        
+        if self._use_flex:
+            block_mask = getattr(batch, "flex_block_mask", None)  # <<< NEW: 读取 Basemask 的 BlockMask
+            out = self.flex_attention(Q, K, V, E, block_mask=block_mask)
         else:
-            # 手动算权重（同样先融合）
-            scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)  # [B,H,Np,Np]
-            if additive_mask is not None:
-                scores = scores + additive_mask
-            attn = F.softmax(scores, dim=-1)
-            attn = F.dropout(attn, p=self.dropout_p, training=self.training)
-            out = torch.matmul(attn, V)
+            add = self._get_cached_additive(batch, mask, Np)  # [B,1,Np,Np] or None
+            if E is None and add is None:
+                fused_bias = None
+            else:
+                if add is not None:
+                    add = add.expand(B, H, Np, Np)
+                    fused_bias = add if E is None else (E + add)
+                else:
+                    fused_bias = E
+            if self.backend != "math":
+                try:
+                    ctx = sdpa_kernel([self._sdpa_enum]) if self._sdpa_enum is not None else nullcontext()
+                    with ctx:
+                        out = scaled_dot_product_attention(
+                            Q, K, V,
+                            attn_mask=fused_bias,   # [B,H,Np,Np] or None
+                            dropout_p=self.dropout_p,
+                            is_causal=False,
+                            scale=self._scale,
+                        )
+                except RuntimeError as e:
+                    if "No available kernel" in str(e):
+                        scores = self._build_scores(Q, K, fused_bias) * self._scale
+                        attn = torch.softmax(scores, dim=-1)
+                        if self._drop is not None and self.training:
+                            attn = self._drop(attn)
+                        out = torch.matmul(attn, V)
+                    else:
+                        raise
+            else:
+                scores = self._build_scores(Q, K, fused_bias) * self._scale
+                attn = torch.softmax(scores, dim=-1)
+                if self._drop is not None and self.training:
+                    attn = self._drop(attn)
+                out = torch.matmul(attn, V)
 
-        # 合头 + 输出投影
+
         out = out.transpose(1, 2).contiguous().view(B, Np, H * D)
         out = self.out_proj(out)
-
-        if return_attn_weights:
-            return out, attn
         setattr(batch, self.x_name, out)
         return batch
+
+    def _forward_with_weights(self, batch, mask: Optional[Tensor] = None):
+        Q, K, V, fused_bias, B, Np, H, D = self._prep_qkv_bias(batch, mask)
+        # 固定 math 路径，保证显式返回权重
+        scores = self._build_scores(Q, K, fused_bias) * self._scale
+        attn = torch.softmax(scores, dim=-1)
+        attn_used = self._drop(attn) if (self._drop is not None and self.training) else attn
+        out = torch.matmul(attn_used, V)
+        out = out.transpose(1, 2).contiguous().view(B, Np, H * D)
+        out = self.out_proj(out)
+        return out, attn

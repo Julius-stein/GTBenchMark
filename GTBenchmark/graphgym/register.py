@@ -20,7 +20,7 @@ train_dict: Dict[str, Any] = {}
 mask_dict: Dict[str, Any] = {}
 feature_augment_dict: Dict[str, Any] = {}
 metric_dict: Dict[str, Any] = {}
-
+perf_dict: Dict[str, Any] = {}
 
 def register_base(mapping: Dict[str, Any],
                   key: str,
@@ -126,6 +126,10 @@ def register_loss(key: str, module: Any = None):
 def register_mask(key: str, module: Any = None):
     r"""Registers a mask generation function in GraphGym."""
     return register_base(mask_dict, key, module)
+
+def register_perf(key: str, module: Any = None):
+    r"""Registers a mask generation function in GraphGym."""
+    return register_base(perf_dict, key, module)
 
 
 def register_train(key: str, module: Any = None):

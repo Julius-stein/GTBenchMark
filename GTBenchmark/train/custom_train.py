@@ -18,9 +18,17 @@ from GTBenchmark.graphgym.optimizer import create_optimizer, create_scheduler
 from GTBenchmark.graphgym.utils.epoch import is_eval_epoch, is_ckpt_epoch
 from GTBenchmark.graphgym.utils.comp_budget import params_count
 
-from GTBenchmark.utils import cfg_to_dict, flatten_dict, make_wandb_name
-from GTBenchmark.utils import (new_optimizer_config, new_scheduler_config)
-from GTBenchmark.timer import runtime_stats_cuda, is_performance_stats_enabled, enable_runtime_stats, disable_runtime_stats
+from GTBenchmark.utils.utils import cfg_to_dict, flatten_dict, make_wandb_name
+from GTBenchmark.utils.utils import (new_optimizer_config, new_scheduler_config)
+from GTBenchmark.utils.perf_monitorV2 import PerfMonitor
+
+STEP_SCHED_NAMES = {
+    'linear_with_warmup', 'cosine_with_warmup',
+    'polydecay_warmup_steps'
+}
+EPOCH_SCHED_NAMES = {
+    'polydecay_warmup_epoch', 'plateau', 'reduce_on_plateau','polynomial_with_warmup'
+}
 
 def check_grad(model):
     for name, param in model.named_parameters():
@@ -66,21 +74,15 @@ def check_grad(model):
 #                             dataset_name=cfg.dataset.name)
 #         time_start = time.time()
 
-def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler, batch_accumulation):
+def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler,monitor, batch_accumulation):
     pbar = tqdm(total=len(loader), disable=not cfg.train.tqdm)
+    
     pbar.set_description(f'Train epoch')
-    # enable_runtime_stats()
-
     model.train()
+    monitor.epoch_start(tag='train')
 
-    runtime_stats_cuda.start_epoch()
-
-    runtime_stats_cuda.start_region("total")
-    runtime_stats_cuda.start_region(
-        "sampling", runtime_stats_cuda.get_last_event())
     iterator = iter(loader)
-    runtime_stats_cuda.end_region("sampling")
-    runtime_stats_cuda.end_region("total", runtime_stats_cuda.get_last_event())
+
 
     if cfg.model.type == 'LPModel': # Handle label propagation specially
         # We don't need to train label propagation
@@ -109,65 +111,60 @@ def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler, batch_ac
     # with torch.autograd.set_detect_anomaly(True):
     while True:
         try:
-            torch.cuda.empty_cache() 
-            runtime_stats_cuda.start_region(
-                "total", runtime_stats_cuda.get_last_event())
-            runtime_stats_cuda.start_region(
-                "sampling", runtime_stats_cuda.get_last_event())
-            batch = next(iterator, None)
-            it += 1
-            if batch is None:
-                runtime_stats_cuda.end_region("sampling")
-                runtime_stats_cuda.end_region(
-                    "total", runtime_stats_cuda.get_last_event())
-                break
-            runtime_stats_cuda.end_region("sampling")
+            with monitor.iteration(tag="train", batch_size=cfg.train.batch_size):
+                # torch.cuda.empty_cache() 
+                with monitor.section("data"): 
+                    batch = next(iterator, None)
+                it += 1
+                if batch == None:
+                    break
+                if isinstance(batch, Data) or isinstance(batch, HeteroData):
+                    batch.split = 'train'
+                    batch.to(torch.device(cfg.device))
+                else: # NAGphormer, HINo
+                    batch = [x.to(torch.device(cfg.device)) for x in batch]
 
-            runtime_stats_cuda.start_region("data_transfer", runtime_stats_cuda.get_last_event())
-            if isinstance(batch, Data) or isinstance(batch, HeteroData):
-                batch.split = 'train'
-                batch.to(torch.device(cfg.device))
-            else: # NAGphormer, HINo
-                batch = [x.to(torch.device(cfg.device)) for x in batch]
-            runtime_stats_cuda.end_region("data_transfer")
+                with monitor.section("forward"), monitor.profiled_step():
+                    pred, true = model(batch)
 
-            runtime_stats_cuda.start_region("train", runtime_stats_cuda.get_last_event())
-            runtime_stats_cuda.start_region("forward", runtime_stats_cuda.get_last_event())
-            pred, true = model(batch)
-            runtime_stats_cuda.end_region("forward")
-            runtime_stats_cuda.start_region("loss", runtime_stats_cuda.get_last_event())
-            if cfg.model.loss_fun == 'curriculum_learning_loss':
-                loss, pred_score = compute_loss(pred, true, cur_epoch)
-            else:
-                loss, pred_score = compute_loss(pred, true)
-            _true = true.detach().to('cpu', non_blocking=True)
-            _pred = pred_score.detach().to('cpu', non_blocking=True)
-            runtime_stats_cuda.end_region("loss")
+                    if cfg.model.loss_fun == 'curriculum_learning_loss':
+                        loss, pred_score = compute_loss(pred, true, cur_epoch)
+                    else:
+                        loss, pred_score = compute_loss(pred, true)
 
-            runtime_stats_cuda.start_region("backward", runtime_stats_cuda.get_last_event())
-            loss.backward()
-            runtime_stats_cuda.end_region("backward")
-            # print(loss.detach().cpu().item())
-            # check_grad(model)
-            # Parameters update after accumulating gradients for given num. batches.
-            if ((it + 1) % batch_accumulation == 0) or (it + 1 == len(loader)):
-                if cfg.optim.clip_grad_norm:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(),
-                                                cfg.optim.clip_grad_norm_value)
-                optimizer.step()
-                optimizer.zero_grad()
-            runtime_stats_cuda.end_region("train")
-            runtime_stats_cuda.end_region("total", runtime_stats_cuda.get_last_event())
-            cfg.params = params_count(model)
-            logger.update_stats(true=_true,
-                                pred=_pred,
-                                loss=loss.detach().cpu().item(),
-                                lr=scheduler.get_last_lr()[0],
-                                time_used=time.time() - time_start,
-                                params=cfg.params,
-                                dataset_name=cfg.dataset.name)
-            pbar.update(1)
-            time_start = time.time()
+                _true = true.detach().to('cpu', non_blocking=True)
+                _pred = pred_score.detach().to('cpu', non_blocking=True)
+                with monitor.section("backward"):
+                    loss.backward()
+
+                # print(loss.detach().cpu().item())
+                # check_grad(model)
+                # Parameters update after accumulating gradients for given num. batches.
+                with monitor.section("optimizer"):
+                    if (it % batch_accumulation == 0) or (it == len(loader)):
+                        if cfg.optim.clip_grad_norm:
+                            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.optim.clip_grad_norm_value)
+                            # print("Gradient norm:", total_norm.item())  
+                        optimizer.step()
+
+                        # step 级调度器在这里
+                        if cfg.optim.scheduler in STEP_SCHED_NAMES:
+                            scheduler.step()
+
+                        optimizer.zero_grad()
+
+                cfg.params = params_count(model)
+                cur_lr = optimizer.param_groups[0]['lr']
+                logger.update_stats(true=_true,
+                                    pred=_pred,
+                                    loss=loss.detach().cpu().item(),
+                                    lr=cur_lr,
+                                    time_used=time.time() - time_start,
+                                    params=cfg.params,
+                                    dataset_name=cfg.dataset.name)
+                pbar.update(1)
+                time_start = time.time()
+            monitor.step(tag="train")
         except RuntimeError as e:
             if "cannot sample n_sample <= 0 samples" in str(e):
                 print(f"Skipping batch due to error: {e}")
@@ -175,11 +172,8 @@ def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler, batch_ac
             else:
                 # If it's a different error, re-raise it
                 raise
-    
-    runtime_stats_cuda.end_epoch()
-    runtime_stats_cuda.report_stats(
-        {'total': 'Total', 'data_transfer': 'Data Transfer', 'sampling': 'Sampling + Slicing', 'train': 'Train', \
-         'attention': 'Attention', 'gt-layer': 'GT-Layer', 'forward': 'Forward', 'loss': 'Loss', 'backward': 'Backward'})
+    monitor.epoch_end(tag='train')
+
 
 
 @torch.no_grad()
@@ -243,6 +237,7 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
 
     """
     start_epoch = 0
+    monitor = PerfMonitor(model)
     if cfg.train.auto_resume:
         start_epoch = load_ckpt(model, optimizer, scheduler,
                                 cfg.train.epoch_resume)
@@ -255,10 +250,11 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
     split_names = ['val', 'test']
     full_epoch_times = []
     perf = [[] for _ in range(num_splits)]
+
     for cur_epoch in range(start_epoch, cfg.optim.max_epoch):
         start_time = time.perf_counter()
         # enable_runtime_stats()
-        train_epoch(cur_epoch, loggers[0], loaders[0], model, optimizer, scheduler,
+        train_epoch(cur_epoch, loggers[0], loaders[0], model, optimizer, scheduler,monitor,
                     cfg.optim.batch_accumulation)
         # disable_runtime_stats()
         perf[0].append(loggers[0].write_epoch(cur_epoch))
@@ -272,11 +268,19 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
             for i in range(1, num_splits):
                 perf[i].append(perf[i][-1])
 
-        val_perf = perf[1]
-        if cfg.optim.scheduler == 'reduce_on_plateau':
-            scheduler.step(val_perf[-1]['loss'])
+        # val_perf = perf[1]
+        # if cfg.optim.scheduler == 'reduce_on_plateau':
+        #     scheduler.step(val_perf[-1]['loss'])
+        # else:
+        #     scheduler.step()
+        val_perf = perf[1]  # 最新验证日志
+        if cfg.optim.scheduler in {'reduce_on_plateau', 'plateau'}:
+            scheduler.step(val_perf[-1]['loss'])   # 需要 metric
+        elif cfg.optim.scheduler in {'polydecay_warmup_epoch','polynomial_with_warmup'}:
+            scheduler.step()                        # 按 epoch 推进
         else:
-            scheduler.step()
+            pass  # 按 step 的调度器已在 train_epoch 内推进
+
         full_epoch_times.append(time.perf_counter() - start_time)
         # Checkpoint with regular frequency (if enabled).
         if cfg.train.enable_ckpt and not cfg.train.ckpt_best \
@@ -329,8 +333,21 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
         logger.close()
     if cfg.train.ckpt_clean:
         clean_ckpt()
-
+    monitor.close()
+    
     logging.info('Task done, results saved in %s', cfg.run_dir)
+    # === 新增：返回最优验证/测试指标 ===
+    if cfg.metric_best != 'auto':
+        m = cfg.metric_best
+        # perf[1] 是 val，perf[2] 是 test
+        vals = [vp[m] for vp in perf[1]]  # 所有 val 指标
+        best_epoch = getattr(np.array(vals), cfg.metric_agg)()
+        best_val = perf[1][best_epoch][m]
+        best_test = perf[2][best_epoch][m]
+        return best_val, best_test
+    else:
+        return None, None
+
 
 
 @register_train('multi-stage')
@@ -349,7 +366,7 @@ def multi_stage_train(loggers, loaders, model, optimizer, scheduler):
     del loaders
     # We don't want the val/test set be shuffled
     loaders, dataset = create_loader(shuffle=False, returnDataset=True)
-    
+    monitor = PerfMonitor(model)
     start_epoch = 0
     # if cfg.train.auto_resume:
     #     start_epoch = load_ckpt(model, optimizer, scheduler,
@@ -443,10 +460,10 @@ def multi_stage_train(loggers, loaders, model, optimizer, scheduler):
         perf = [[] for _ in range(num_splits)]
         for cur_epoch in range(start_epoch, cfg.optim.max_epoch):
             start_time = time.perf_counter()
-            # enable_runtime_stats()
-            train_epoch(cur_epoch, loggers[0], loaders[0], model, optimizer, scheduler,
+
+            train_epoch(cur_epoch, loggers[0], loaders[0], model, optimizer, scheduler,monitor,
                         cfg.optim.batch_accumulation)
-            # disable_runtime_stats()
+
             perf[0].append(loggers[0].write_epoch(cur_epoch))
 
             if is_eval_epoch(cur_epoch, start_epoch):
@@ -583,7 +600,7 @@ def log_attn_weights(loggers, loaders, model, optimizer=None, scheduler=None):
     """
     import os.path as osp
     from torch_geometric.loader.dataloader import DataLoader
-    from GTBenchmark.utils import unbatch, unbatch_edge_index
+    from GTBenchmark.utils.utils import unbatch, unbatch_edge_index
 
     start_time = time.perf_counter()
 

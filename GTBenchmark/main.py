@@ -23,7 +23,7 @@ from torch_geometric import seed_everything
 from GTBenchmark.finetuning import load_pretrained_model_cfg, \
     init_model_from_pretrained
 from GTBenchmark.logger import create_logger
-from GTBenchmark.utils import (new_optimizer_config, new_scheduler_config, \
+from GTBenchmark.utils.utils import (new_optimizer_config, new_scheduler_config, \
                              custom_set_out_dir, custom_set_run_dir)
 
 

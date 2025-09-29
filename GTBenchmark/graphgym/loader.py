@@ -273,7 +273,48 @@ def set_dataset_info(dataset):
 
     if hasattr(dataset, 'dynamicTemporal'):
         cfg.share.num_splits = len(dataset)
+    # 直接索引 dataset[i]
+    #!
+    cfg.share.can_flex = False
+    if len(dataset)>1:
+        slices = dataset.slices["x"]   # x 的切片位置，比如 [0, 34, 67, ...]
+        # 每个图的节点数就是相邻差值
+        num_nodes_list = slices[1:] - slices[:-1]
+        cfg.share.max_num_nodes = max(num_nodes_list).item()
+        cfg.share.can_flex = _is_pow2(cfg.gt.dim_hidden//cfg.gt.attn_heads) and (cfg.gt.attn_dropout == 0.0) and cfg.gt.use_flex
+        if cfg.share.can_flex and cfg.gt.use_flex:
+            BLOCK_SIZE = 128
+            cfg.share.targetsize = int((cfg.share.max_num_nodes // BLOCK_SIZE+1) * BLOCK_SIZE)
+        else:
+            cfg.share.targetsize = -1
+    #!Graphormer记录度数
+    
+    try:
+        data = dataset.data
+        if not isinstance(data, HeteroData):
+            cfg.share.num_nodes = int(data.num_nodes)
+            cfg.share.num_edges = int(data.num_edges)
 
+            if hasattr(data, "edge_index"):
+                row, col = data.edge_index
+                indeg = torch.bincount(col, minlength=data.num_nodes)
+                outdeg = torch.bincount(row, minlength=data.num_nodes)
+                cfg.share.max_indegree = int(indeg.max().item())
+                cfg.share.max_outdegree = int(outdeg.max().item())
+            else:
+                cfg.share.max_indegree = -1
+                cfg.share.max_outdegree = -1
+        else:
+            # HeteroData 不展开细节，只给出节点/边总量
+            cfg.share.num_nodes = sum([data[nt].num_nodes for nt in data.node_types])
+            cfg.share.num_edges = sum([data[et].num_edges for et in data.edge_types])
+            cfg.share.max_indegree = -1
+            cfg.share.max_outdegree = -1
+    except Exception:
+        cfg.share.num_nodes = -1
+        cfg.share.num_edges = -1
+        cfg.share.max_indegree = -1
+        cfg.share.max_outdegree = -1
 
 # def set_dataset_info(dataset):
 #     r"""
@@ -363,16 +404,9 @@ def set_dataset_info(dataset):
 
 #     if hasattr(dataset, 'dynamicTemporal'):
 #         cfg.share.num_splits = len(dataset)
-from GTBenchmark.train.side_channel import collate_graphormer_with_side, attach_side
-def collate_graphormer_attached(items):
-    # print("[DEBUG] calling collate_graphormer_attached, batch size:", len(items))
-    batch, side = collate_graphormer_with_side(
-        items,
-        max_spatial_dist=cfg.posenc_GraphormerBias.multi_hop_max_dist,     # 按你的配置改
-        undirected=cfg.dataset.undirected,
-    )
-    attach_side(batch, side)     # 把 side 存到 batch._side
-    return batch
+def _is_pow2(x: int) -> bool:
+    return x > 0 and (x & (x - 1) == 0)
+
 
 def create_dataset():
     r"""
@@ -397,14 +431,15 @@ def get_loader(dataset, sampler, batch_size, shuffle=True, split='train'):
     func = register.sampler_dict.get(sampler, None)
     if func is not None:
         return func(dataset, batch_size=batch_size, shuffle=shuffle, split=split)
-    if sampler == "graphormer":
+    if cfg.posenc_GraphormerBias.enable and not cfg.posenc_GraphormerBias.node_degrees_only:
         from torch.utils.data import DataLoader as torch_dataloader
+        from GTBenchmark.utils.side_data import global_collate
         loader_train = torch_dataloader(
             dataset,
             batch_size=cfg.train.batch_size,
             shuffle=True,
             num_workers=cfg.num_workers,
-            collate_fn=collate_graphormer_attached,
+            collate_fn=global_collate,
             pin_memory=True
         )
 
@@ -475,9 +510,9 @@ def create_loader(dataset = None, shuffle = True, returnDataset = False):
     Returns: List of PyTorch data loaders
 
     """
-    if dataset is None:
-        dataset = create_dataset()
-    print('Load dataset')
+
+    dataset = create_dataset()
+
 
     # train loader
     if cfg.dataset.task == 'graph':

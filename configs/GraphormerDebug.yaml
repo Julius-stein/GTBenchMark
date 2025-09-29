@@ -1,0 +1,119 @@
+out_dir: ./results/graphormernew
+metric_best: mae
+metric_agg: argmin
+seed: 0
+
+dataset:
+  format: PyG-ZINC
+  name: subset
+  task: graph
+  task_type: regression
+  transductive: False
+  node_encoder: True
+
+  node_encoder_num_types: 28
+  # node_encoder_bn: False
+  # edge_encoder: True
+  # edge_encoder_name: TypeDictEdge
+  # 键合类型：single, double, triple, aromatic
+  edge_encoder_num_types: 4
+  # edge_encoder_bn: False
+
+posenc_GraphormerBias:
+  enable: False
+  node_degrees_only: False
+
+  # —— DGL 中的 SpatialEncoder（最短路径距离，-1 表示不连通） ——  
+  # DGL 里 shortest_dist 给出的 spd ∈ {-1,0,1,…}, 这里区分 0…19 + “-1” 共 20 类
+  num_spatial_types: 20
+  num_in_degrees: 64           # DGL 里 clamp(in_degrees+1, 0, 512) 后，每个 deg 索引到 0…63 的 embedding
+  num_out_degrees: 64           # 同上，out_degree
+
+  # —— DGL 中的 PathEncoder（多跳路径上的边特征） ——  
+  enable_path_bias: True        # 打开 PathEncoder
+  multi_hop_max_dist: 20         # DGL 里截/填 path 长度到 5 hops
+  path_edge_feat_dim: 4         # bond 特征维度（4 种键合）
+  use_graph_token: True
+
+train:
+  mode: debug
+  sampler: full_batch
+  batch_size: 256
+  eval_period: 4
+  ckpt_period: 100
+  tqdm: True
+  persistent_workers: True
+  pin_memory: True
+
+val:
+  sampler: full_batch
+
+model:
+  type: GTModel
+  loss_fun: l1
+  edge_decoding: dot
+  graph_pooling: graph_token
+
+gt:
+  layers: 12
+  attn_heads: 8
+  dim_hidden: 80
+  dropout: 0.0
+  attn_dropout: 0.1
+  input_dropout: 0.1
+  activation_dropout: 0.1
+  ffn_dim: 80
+  #,GraphormerBias
+  node_encoder_list: [TypeDictNode,GraphormerBias]
+  edge_encoder_list: []
+  encoder_type : cascade #cascade or concat
+  attn_type: GeneralAttention
+  layer_type: GraphTransformerLayer
+  prepend_norm: True
+  batch_norm: False
+  layer_norm: True
+  residual: True
+  act : gelu
+  head: reg_graph
+  # 把 path 编码也传给内部的 GraphormerLayer
+  # path_max_len: 5              # 对应 multi_hop_max_dist
+  # path_feat_dim: 4             # 对应 path_edge_feat_dim
+
+gnn:
+  head: graphormer_graph
+  layers_pre_mp: 0
+  layers_post_mp: 3
+
+  dim_inner: 80    # 必须和 embed_dim 保持一致
+  batchnorm: True
+  act: relu
+  dropout: 0.0
+  agg: mean
+  normalize_adj: False
+
+optim:
+  clip_grad_norm: True
+  clip_grad_norm_value: 5.0
+  optimizer: adamW
+  weight_decay: 0.01
+  base_lr: 0.001
+  max_epoch: 2000
+  scheduler: polynomial_with_warmup
+
+# perf:
+  # enable_op_profiler : True
+# optim:
+#   optimizer: adam                 
+#   base_lr: 2.0e-4
+#   weight_decay: 0.01
+#   adam_beta1: 0.9
+#   adam_beta2: 0.999
+#   clip_grad_norm: true
+#   clip_grad_norm_value: 5.0
+#   batch_accumulation: 1           # 显存不够再增大以模拟更大有效batch
+#   scheduler: polydecay_warmup_steps   # ★ 使用中性命名的step级调度器
+#   max_epoch: 1000
+#   warmup_updates: 60000               # ★ 与脚本一致
+#   total_num_updates: 400000           # ★ 与脚本一致
+#   end_lr: 1.0e-9
+#   power: 1.0  

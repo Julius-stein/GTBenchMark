@@ -3,6 +3,9 @@ import gdown, os, time
 import os.path as osp
 from functools import partial
 from typing import Union
+from torch_geometric.utils import index_to_mask
+from torch_geometric.data import Data
+from sklearn.model_selection import train_test_split
 
 import numpy as np
 import scipy.io
@@ -29,9 +32,15 @@ from GTBenchmark.graphgym.config import cfg
 from GTBenchmark.graphgym.loader import load_pyg, load_ogb, set_dataset_attr
 from GTBenchmark.graphgym.register import register_loader
 from GTBenchmark.transform.posenc_stats import compute_posenc_stats
+from GTBenchmark.transform.task_preprocessing import task_specific_preprocessing
 from GTBenchmark.transform.transforms import (pre_transform_in_memory,
                                            typecast_x, concat_x_and_pos,
                                            clip_graphs_to_size)
+from GTBenchmark.transform.multihop_prep import generate_multihop_adj
+from GTBenchmark.transform.dist_transforms import (add_dist_features, add_reverse_edges,
+                                                 add_self_loops, effective_resistances, 
+                                                 effective_resistance_embedding,
+                                                 effective_resistances_from_embedding)
 
 
 from torch_geometric.datasets import (Actor, GNNBenchmarkDataset, Planetoid,
@@ -164,6 +173,7 @@ def load_dataset_master(format, name, dataset_dir):
     Returns:
         PyG dataset object with applied perturbation transforms and data splits
     """
+    use_Hetero = cfg.dataset.heteroProcess
     if format.startswith('PyG-'):
         pyg_dataset_id = format.split('-', 1)[1]
         if pyg_dataset_id in ['ogbn-mag', 'mag-year']:
@@ -187,7 +197,7 @@ def load_dataset_master(format, name, dataset_dir):
             dataset = preformat_OAG(dataset_dir, name)
         
         elif pyg_dataset_id == 'Planetoid':
-            dataset = preformat_Planetoid(dataset_dir, name)
+            dataset = preformat_Planetoid(dataset_dir, name,use_Hetero)
 
         elif pyg_dataset_id == 'MovieLens':
             dataset = preformat_MovieLens(dataset_dir)
@@ -213,7 +223,9 @@ def load_dataset_master(format, name, dataset_dir):
 
     elif format == 'OGB':
         if name.startswith('ogbn') or name in ['MAG240M', 'mag-year']:
-            dataset = preformat_OGB_Node(dataset_dir, name.replace('_', '-'))
+            dataset = preformat_ogbn(dataset_dir, name)
+            # dataset = preformat_OGB_Node(dataset_dir, name.replace('_', '-'))
+
         elif name.startswith('ogbg'):
             dataset = preformat_OGB_Graph(dataset_dir, name.replace('_', '-'))
 
@@ -238,7 +250,7 @@ def load_dataset_master(format, name, dataset_dir):
     else:
         raise ValueError(f"Unknown data format: {format}")
 
-    # pre_transform_in_memory(dataset, partial(task_specific_preprocessing, cfg=cfg))
+    pre_transform_in_memory(dataset, partial(task_specific_preprocessing, cfg=cfg))
 
     log_loaded_dataset(dataset, format, name)
 
@@ -391,24 +403,57 @@ def load_dataset_master(format, name, dataset_dir):
                                         pe_types=pe_enabled_list,
                                         is_undirected=is_undirected,
                                         cfg=cfg),
-                                show_progress=True
+                                show_progress=True,side=True
                                 )
         elapsed = time.perf_counter() - start
         timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
                   + f'{elapsed:.2f}'[-3:]
         logging.info(f"Done! Took {timestr}")
 
-
 #-------------------------#
 # Preprocess token choices#
 #-------------------------#
-    if cfg.dataset.preprocess in ["None","HopToToken"]:
+
+    logging.info(f"Preprocessing dataset with {cfg.dataset.preprocess} ...")
+    start = time.perf_counter()
+    if cfg.dataset.preprocess in ["None","HopToToken","Expand"]:
         if cfg.dataset.preprocess == "None":
             pass
-        elif cfg.dataset.preprocess == "HopToToken":
+        if cfg.dataset.preprocess == "Expand":
+            from GTBenchmark.transform.expander_edges import generate_random_expander
+            for j in range(cfg.dataset.exp_count):
+                pre_transform_in_memory(dataset,
+                            partial(generate_random_expander,
+                                    degree = cfg.dataset.exp_deg,
+                                    algorithm = cfg.dataset.exp_algorithm,
+                                    rng = None,
+                                    max_num_iters = cfg.dataset.exp_max_num_iters,
+                                    exp_index = j),
+                            show_progress=True
+                            )
+
+        if cfg.dataset.preprocess == "HopToToken":
             dataset = hop2token(dataset)
     else:
         raise ValueError(f"Unexpect preprocess type {cfg.dataset.preprocess}.")
+    elapsed = time.perf_counter() - start
+    timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+                + f'{elapsed:.2f}'[-3:]
+    logging.info(f"Done! Took {timestr}")
+
+    if cfg.gt.rb_order > 1:
+        start = time.perf_counter()
+        logging.info(f"Generating multi-hop adjacency matrices ...")
+        pre_transform_in_memory(dataset,
+                                partial(generate_multihop_adj,
+                                        cfg = cfg),
+                                show_progress=True
+                                )
+        elapsed = time.perf_counter() - start
+        timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+                  + f'{elapsed:.2f}'[-3:]
+        logging.info(f"Done! Took {timestr}")
+    
 
     # Set standard dataset train/val/test splits
     if hasattr(dataset, 'split_idxs'):
@@ -417,6 +462,7 @@ def load_dataset_master(format, name, dataset_dir):
 
     # # Verify or generate dataset train/val/test splits
     prepare_splits(dataset)
+    dataset.data['extra_loss'] = torch.Tensor([0.0])
 
     # # Precompute in-degree histogram if needed for PNAConv.
     # if cfg.gt.layer_type.startswith('PNA') and len(cfg.gt.pna_degrees) == 0:
@@ -540,7 +586,7 @@ def preformat_OAG(dataset_dir, name):
     return dataset
 
 
-def preformat_Planetoid(dataset_dir, name):
+def preformat_Planetoid(dataset_dir, name, use_hetero):
     """Load and preformat Planetoid datasets.
 
     Args:
@@ -549,22 +595,25 @@ def preformat_Planetoid(dataset_dir, name):
     Returns:
         PyG dataset object
     """
-    dataset = Planetoid(root=dataset_dir, name=name, transform=T.NormalizeFeatures(), \
-                        split="random", num_train_per_class=3943, num_val=3943, num_test=3943)
+    if use_hetero:
+        dataset = Planetoid(root=dataset_dir, name=name, transform=T.NormalizeFeatures(), \
+                            split="random", num_train_per_class=3943, num_val=3943, num_test=3943)
 
-    data = HeteroData()
-    data['paper'].x = dataset[0].x # assuming there's just one node type.
-    data['paper'].y = dataset[0].y.squeeze().masked_fill(torch.isnan(dataset[0].y.squeeze()), -1).type(torch.int64)
-    # data['paper', 'cites', 'paper'].edge_index = to_undirected(dataset[0].edge_index) # dataset[0].edge_index # 
-    adj_t = get_sparse_tensor(dataset[0].edge_index, num_nodes=dataset[0].x.size(0))
-    adj_t = adj_t.to_symmetric()
-    data['paper', 'cites', 'paper'].adj_t = adj_t
+        data = HeteroData()
+        data['paper'].x = dataset[0].x # assuming there's just one node type.
+        data['paper'].y = dataset[0].y.squeeze().masked_fill(torch.isnan(dataset[0].y.squeeze()), -1).type(torch.int64)
+        # data['paper', 'cites', 'paper'].edge_index = to_undirected(dataset[0].edge_index) # dataset[0].edge_index # 
+        adj_t = get_sparse_tensor(dataset[0].edge_index, num_nodes=dataset[0].x.size(0))
+        adj_t = adj_t.to_symmetric()
+        data['paper', 'cites', 'paper'].adj_t = adj_t
 
-    split_names = ['train_mask', 'val_mask', 'test_mask']
-    for i in range(len(split_names)):
-        data['paper'][split_names[i]] = dataset[0][split_names[i]]
-        
-    dataset.data = data
+        split_names = ['train_mask', 'val_mask', 'test_mask']
+        for i in range(len(split_names)):
+            data['paper'][split_names[i]] = dataset[0][split_names[i]]
+            
+        dataset.data = data
+    else:
+        dataset = Planetoid(dataset_dir, name)
 
     return dataset
 
@@ -654,6 +703,63 @@ def preformat_MAG(dataset_dir, name):
     """
     dataset = MAGDataset(root=dataset_dir, name=name, 
                          rand_split=cfg.dataset.rand_split)
+    return dataset
+
+
+def preformat_ogbn(dataset_dir, name):
+    dataset = PygNodePropPredDataset(name=name, root=dataset_dir)
+
+    # === 预处理 ===
+    if name == 'ogbn-arxiv':
+        pre_transform_in_memory(dataset, partial(add_reverse_edges))
+        if cfg.dataset.add_self_loops:
+            pre_transform_in_memory(dataset, partial(add_self_loops))
+
+    if name == 'ogbn-proteins':
+        pre_transform_in_memory(dataset, partial(move_node_feat_to_x))
+        pre_transform_in_memory(dataset, partial(typecast_x, type_str='float'))
+
+    data = dataset[0]
+    data.y = data.y.squeeze(-1).to(torch.long)
+
+    # === Split 逻辑 ===
+    if not cfg.dataset.rand_split:
+        # 官方 split
+        split_idx = dataset.get_idx_split()
+        if "valid" in split_idx:  # 统一 key
+            split_idx['val'] = split_idx.pop('valid')
+
+        # 显式写入 mask
+        data.train_mask = index_to_mask(split_idx['train'], size=data.num_nodes)
+        data.val_mask   = index_to_mask(split_idx['val'],   size=data.num_nodes)
+        data.test_mask  = index_to_mask(split_idx['test'],  size=data.num_nodes)
+
+        dataset.split_idx = split_idx
+
+    else:
+        # 自定义随机划分
+        idx = torch.where(data.y != -1)[0]
+
+        # 比例 (85% train, 9% val, 6% test)
+        train_size = 0.85
+        valid_size = 0.6  # 注意是对剩余部分的比例
+        train_idx, temp_idx = train_test_split(idx, train_size=train_size)
+        val_idx, test_idx   = train_test_split(temp_idx, train_size=valid_size)
+
+        # 显式写入 mask
+        data.train_mask = index_to_mask(torch.tensor(train_idx), size=data.num_nodes)
+        data.val_mask   = index_to_mask(torch.tensor(val_idx),   size=data.num_nodes)
+        data.test_mask  = index_to_mask(torch.tensor(test_idx),  size=data.num_nodes)
+
+        dataset.split_idx = {
+            "train": torch.tensor(train_idx),
+            "val":   torch.tensor(val_idx),
+            "test":  torch.tensor(test_idx),
+        }
+
+    # 确保 dataset[0] 上有 mask
+    dataset.data = data  
+
     return dataset
 
 

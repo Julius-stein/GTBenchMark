@@ -46,9 +46,9 @@ class MultiHeadGraphAttentionLayer(MessagePassing):
 
         return alpha.view(-1, self.n_heads, 1) * V_j
 
-@register_layer('MessagePassingAttention')
+@register_layer('MPAttention')
 class MPAttn(nn.Module):
-    def __init__(self, dim_h, num_heads,attn_drop=0.0, x_name='x', b_name='attn_bias', e_name='edge_index'):
+    def __init__(self, dim_h, num_heads,attn_drop=0.0, x_name='x', b_name='attn_bias', e_name='edge_index',return_attn_weights = False):
         super(MPAttn, self).__init__()
         self.x_name = x_name
         self.b_name = b_name

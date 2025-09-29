@@ -22,7 +22,7 @@ from torch_geometric import seed_everything
 from GTBenchmark.finetuning import load_pretrained_model_cfg, \
     init_model_from_pretrained
 from GTBenchmark.logger import create_logger
-from GTBenchmark.utils import (new_optimizer_config, new_scheduler_config, \
+from GTBenchmark.utils.utils import (new_optimizer_config, new_scheduler_config, \
                              custom_set_out_dir, custom_set_run_dir)
 
 
@@ -75,6 +75,7 @@ def run():
     dump_cfg(cfg)
     # Set Pytorch environment
     torch.set_num_threads(cfg.num_threads)
+    logging.info(cfg)
     # Repeat for multiple experiment runs
     for run_id, seed, split_index in zip(*run_loop_settings()):
         # Set configurations for each run
@@ -98,6 +99,7 @@ def run():
         # Set machine learning pipeline
         loaders, dataset = create_loader(returnDataset=True)
         loggers = create_logger()
+
         model = create_model(dataset=dataset)
         if cfg.pretrained.dir:
             model = init_model_from_pretrained(

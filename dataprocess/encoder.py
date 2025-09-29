@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from functools import partial
 import scipy.sparse as sp
 from numpy.linalg import inv
-from pygsp import graphs
+# from pygsp import graphs
 from torch.nn.functional import normalize
 import torch_geometric.transforms as T
 from torch_geometric.utils.undirected import is_undirected, to_undirected

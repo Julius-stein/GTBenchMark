@@ -11,6 +11,16 @@ from torch_geometric.experimental import (
 )
 from torch_geometric.utils import cumsum, scatter
 
+def get_graph_sizes(data) -> torch.Tensor:
+    # 返回 sizes: LongTensor[B]，第 g 个值是第 g 张图的节点数 Ni
+    if hasattr(data, "batch") and data.batch is not None:
+        num_graphs = int(data.batch.max().item()) + 1 if data.batch.numel() > 0 else 0
+        return torch.bincount(data.batch.to(torch.long), minlength=num_graphs)
+    elif hasattr(data, "ptr") and data.ptr is not None:
+        return (data.ptr[1:] - data.ptr[:-1]).to(torch.long)
+    else:
+        raise RuntimeError("需要 data.ptr 或 data.batch 才能确定每张图的大小。")
+
 
 @disable_dynamic_shapes(required_args=['batch_size', 'max_num_nodes'])
 def to_dense_batch(

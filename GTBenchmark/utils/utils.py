@@ -18,7 +18,9 @@ def new_optimizer_config(cfg):
     return OptimizerConfig(optimizer=cfg.optim.optimizer,
                            base_lr=cfg.optim.base_lr,
                            weight_decay=cfg.optim.weight_decay,
-                           momentum=cfg.optim.momentum)
+                           momentum=cfg.optim.momentum,
+                           beta=(cfg.optim.adam_beta1,cfg.optim.adam_beta2)
+                           )
 
 
 def new_scheduler_config(cfg):
@@ -28,7 +30,11 @@ def new_scheduler_config(cfg):
         max_epoch=cfg.optim.max_epoch, reduce_factor=cfg.optim.reduce_factor,
         schedule_patience=cfg.optim.schedule_patience, min_lr=cfg.optim.min_lr,
         num_warmup_epochs=cfg.optim.num_warmup_epochs,
-        train_mode=cfg.train.mode, eval_period=cfg.train.eval_period)
+        train_mode=cfg.train.mode, eval_period=cfg.train.eval_period,
+        warmup_updates = cfg.optim.warmup_updates,              
+        total_num_updates= cfg.optim.total_num_updates,           
+        end_lr = cfg.optim.end_lr,
+        power = cfg.optim.power )
 
 
 def custom_set_out_dir(cfg, cfg_fname, name_tag, gpu_index=-1):
@@ -46,6 +52,7 @@ def custom_set_out_dir(cfg, cfg_fname, name_tag, gpu_index=-1):
     if gpu_index != -1:
         run_name += f'-gpu{gpu_index}'
     cfg.out_dir = os.path.join(cfg.out_dir, run_name)
+    cfg.perf.logdir = os.path.join(cfg.out_dir, "perf")
 
 
 def custom_set_run_dir(cfg, run_id):
@@ -204,7 +211,7 @@ def make_wandb_name(cfg):
 
 
 def unbatch(src: Tensor, batch: Tensor, dim: int = 0) -> List[Tensor]:
-    """
+    r"""
     COPIED FROM NOT YET RELEASED VERSION OF PYG (as of PyG v2.0.4).
 
     Splits :obj:`src` according to a :obj:`batch` vector along dimension

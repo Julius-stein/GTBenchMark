@@ -26,7 +26,7 @@ def GNNLayer(dim_in, dim_out, has_act=True, **kwargs):
     return GeneralLayer(cfg.gnn.layer_type, dim_in, dim_out, has_act, **kwargs)
 
 
-def GNNPreMP(dim_in, dim_out, **kwargs):
+def GNNPreMP(dim_in: int, dim_out: int, num_layers: int, **kwargs):
     """
     Wrapper for NN layer before GNN message passing
 
@@ -37,7 +37,7 @@ def GNNPreMP(dim_in, dim_out, **kwargs):
 
     """
     return GeneralMultiLayer('linear',
-                             cfg.gnn.layers_pre_mp,
+                             num_layers,
                              dim_in,
                              dim_out,
                              dim_inner=dim_out,

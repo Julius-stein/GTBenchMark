@@ -1,0 +1,65 @@
+out_dir: ./results/Expcora
+metric_agg: argmax
+metric_best: accuracy
+dataset:
+  dir: /mnt/data2/duxin/.datasets
+  format: PyG-Planetoid
+  name: cora
+  split_mode: standard
+  task: node
+  task_type: classification
+  transductive: true
+  preprocess: Expand
+  exp_algorithm: Random-d
+  exp_count: 1
+  exp_deg: 3
+  exp_max_num_iters: 100
+  num_virt_node: 0
+train:
+  enable_ckpt: false
+  eval_period: 5
+  mode: custom
+  sampler: full_batch
+gnn:
+  mode: GPS
+  layer_type: GCN
+  act: relu
+  agg: mean
+  batch_norm: true
+  dim_inner: 96
+  dropout: 0.4
+  layers_post_mp: 1
+  layers_pre_mp: 1
+  normalize_adj: false
+
+gt:
+  attn_dropout: 0.6
+  batch_norm: true
+  dim_hidden: 96
+  dropout: 0.4
+  layer_norm: false
+  layer_type: Transformer
+  attn_type: MPAttention
+  layers_post_gt: 1
+  layers: 3
+  attn_heads: 1
+  ffn_dim: 192
+  head: node
+  encoder_type : cascade
+  node_encoder_list: [RawEncoder]
+  edge_encoder_list: [DummyEdge,Edgefixer]
+
+model:
+  edge_decoding: dot
+  loss_fun: cross_entropy
+  type: GTModel
+optim:
+  base_lr: 0.003
+  clip_grad_norm: true
+  max_epoch: 2
+  num_warmup_epochs: 10
+  optimizer: adamW
+  scheduler: cosine_with_warmup
+  weight_decay: 3e-5
+perf:
+  mode: "off"

@@ -2,106 +2,172 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import GTBenchmark.graphgym.models.head  # noqa, register module
+# import GTBenchmark.graphgym.models.head  # noqa, register module
 import GTBenchmark.graphgym.register as register
-import torch_geometric.nn as pyg_nn
 from GTBenchmark.graphgym.config import cfg
-from GTBenchmark.graphgym.register import register_network, register_mask
+from GTBenchmark.graphgym.register import register_network
 from GTBenchmark.network.utils import FeatureEncoder
-from torch_geometric.nn import (Sequential, Linear, HeteroConv, GraphConv, SAGEConv, HGTConv, GATConv)
+from GTBenchmark.graphgym.models.gnn import GNNPreMP, GeneralLayer
 
-# TODO:耦合GNN
+
 
 @register_network('GTModel')
 class GTModel(torch.nn.Module):
     def __init__(self, dim_in, dim_out):
         super().__init__()
 
+        # ---------------- 基础 ----------------
         self.dim_h      = cfg.gt.dim_hidden
+        #@!
         self.input_drop = nn.Dropout(cfg.gt.input_dropout)
         self.activation = register.act_dict[cfg.gt.act]
-        self.batch_norm = cfg.gt.batch_norm
         self.layer_norm = cfg.gt.layer_norm
-        self.l2_norm    = cfg.gt.l2_norm
+        self.l2_norm    = getattr(cfg.gt, "l2_norm", False)  # 可能不存在就给缺省
         GNNHead         = register.head_dict[cfg.gt.head]
-        self.has_gnn = False
 
         self.encoder = FeatureEncoder()
-        
-        self.num_virtual_nodes = cfg.gt.virtual_nodes
-        self.dim_in = dim_in
-
-        #TODO 目前这个逻辑不太对
-        try:
-            self.postfixed_local_model = False
-            layer_type = cfg.gt.layer_type
-            if '--' in layer_type:
-                self.postfixed_local_model = True
-                layer_type, postfixed_gnn_type = layer_type.split('--')
-            # if '-' in layer_type:
-            #     self.prefixed_local_model = True
-            #     prefixed_gnn_type, layer_type = layer_type.split('-')
-            if '+' in layer_type:
-                local_gnn_type, global_model_type = layer_type.split('+')
-            else:
-                if layer_type in ['Transformer']:
-                    local_gnn_type, global_model_type = 'None', layer_type
+        if cfg.gnn.layers_pre_mp > 0:
+            if len(cfg.gt.node_encoder_list)==0:
+                if cfg.gt.layer_type == "NodeFormerConv":
+                    self.pre_mp = GeneralLayer('linear', dim_in = dim_in, dim_out = cfg.gt.dim_hidden, num_layers = 1, has_act = True, has_bias = True, cfg = cfg)
                 else:
-                    local_gnn_type, global_model_type = layer_type, 'None'
-        except:
-            raise ValueError(f"Unexpected layer type: {layer_type}")
-
-        self.convs = nn.ModuleList()
-        # self.norms = nn.ModuleList()
-        for i in range(cfg.gt.layers):
-            conv = register.layer_dict['GraphTransformerLayer'](dim_h=self.dim_h)
-            self.convs.append(conv)
-
-            # if self.layer_norm:
-            #     self.norms.append(nn.LayerNorm(self.dim_h))
-            # elif self.batch_norm:
-            #     self.norms.append(nn.BatchNorm1d(self.dim_h))
+                    self.pre_mp = GNNPreMP(
+                    cfg.share.dim_in, self.dim_h, cfg.gnn.layers_pre_mp)
             
-
-        self.post_gt = GNNHead(self.dim_h, dim_out)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        if self.num_virtual_nodes > 0:
-            for node_type in self.virtual_nodes:
-                torch.nn.init.normal_(self.virtual_nodes[node_type])
+            else:
+                self.pre_mp = GNNPreMP(
+                    self.dim_h, self.dim_h, cfg.gnn.layers_pre_mp)
+                
+        else:
+            self.pre_mp = None
         
 
+        # ---------------- 选择 GT 层类型 ----------------
+        if cfg.gnn.mode.lower() == "gps":
+            local_model =  cfg.gnn.layer_type
+            global_model = cfg.gt.layer_type
+            GTLayer = register.layer_dict["GPSLayer"]
+            self.gt_layers = nn.ModuleList([GTLayer(self.dim_h,local_model,global_model) for _ in range(cfg.gt.layers)])
+        elif cfg.gt.layer_type in ["Transformer","GraphTransformerLayer","TransformerLayer"]:
+            gt_layer_key = "GraphTransformerLayer"
+            GTLayer = register.layer_dict[gt_layer_key]
+            self.gt_layers = nn.ModuleList([GTLayer(dim_h=self.dim_h) for _ in range(cfg.gt.layers)])
+        else:
+            gt_layer_key = cfg.gt.layer_type
+            
+            GTLayer = register.layer_dict[gt_layer_key]
+            self.gt_layers = nn.ModuleList([GTLayer(dim_h=self.dim_h) for _ in range(cfg.gt.layers)])
+
+        # ---------------- GNN 栈--------------------------------------
+        self.gnn_mode = cfg.gnn.mode.lower()  # off | post | cascade | parallel | gps
+        if self.gnn_mode in ("post", "cascade", "parallel"):
+            GNNLayer = register.layer_dict[cfg.gnn.layertype]
+            gnn_layers = cfg.gnn.layers if hasattr(cfg.gnn, "layers") else cfg.gt.layers
+            self.gnn_layers = nn.ModuleList([GNNLayer(self.dim_h) for _ in range(gnn_layers)])
+            self.has_gnn = True
+        else:
+            self.gnn_layers = nn.ModuleList()
+            self.has_gnn = False
+
+        if self.gnn_mode == "parallel":
+            self.parallel_fuse = nn.Sequential(
+                nn.Linear(self.dim_h * 2, cfg.gnn.dim_inner),
+                register.act_dict[cfg.gnn.act],
+                nn.Dropout(cfg.gnn.dropout),
+                nn.Linear(cfg.gnn.dim_inner, self.dim_h),
+            )
+
+        # ---------------- 绑定执行路径（forward 零判断） ----------------
+        if cfg.gt.layer_type == "NodeFormerConv":
+            self.run = self._run_attn_only
+        elif self.gnn_mode == "off":
+            self.run = self._run_gt_only
+        elif self.gnn_mode == "gps":
+            self.run = self._run_gps
+        elif self.gnn_mode == "post":
+            self.run = self._run_post
+        elif self.gnn_mode == "cascade":
+            self.run = self._run_cascade
+        elif self.gnn_mode == "parallel":
+            self.run = self._run_parallel
+        else:
+            raise ValueError(f"Unknown gnn.mode: {self.gnn_mode}")
+
+        self.post_head = GNNHead(self.dim_h, dim_out)
+        # self.post_mp = GNNHead(dim_in=cfg.gnn.dim_inner, dim_out=dim_out)
+
+    # ---------------- 内部小工具 ----------------
+    def _gt_stack(self, dense, mask):
+        for layer in self.gt_layers:
+            dense = layer(dense, mask)
+        return dense
+
+    def _gnn_stack(self, graph):
+        for layer in self.gnn_layers:
+            graph = layer(graph)
+        return graph
+
+    # ---------------- 执行路径 ----------------
+    def _run_attn_only(self,batch,maskGen):
+        return self._gt_stack(batch,None)
+    def _run_gt_only(self, batch, maskGen):
+        # off：GT 栈内部已决定是否融合（hybrid 由层内部完成）
+        dense, mask = maskGen(batch)
+        dense = self._gt_stack(dense, mask)
+        return maskGen.from_dense_batch(dense)
+    
+    def _run_gps(self, batch, maskGen):
+        # gps：GT 栈内部已决定是否融合（hybrid 由层内部完成）
+        for layer in self.gt_layers:
+            batch = layer(batch, maskGen)
+        return batch
+
+    def _run_post(self, batch, maskGen):
+        # 先 GT 全栈，再 GNN 全栈
+        dense, mask = maskGen(batch)
+        dense = self._gt_stack(dense, mask)
+        graph = maskGen.from_dense_batch(dense)
+        graph = self._gnn_stack(graph)
+        return graph
+
+    def _run_cascade(self, batch, maskGen):
+        # 交替：GT(i) -> GNN(i) -> ...
+        dense, mask = maskGen(batch)
+        i = j = 0
+        while i < len(self.gt_layers) or j < len(self.gnn_layers):
+            if i < len(self.gt_layers):
+                dense = self.gt_layers[i](dense, mask)
+                i += 1
+            if j < len(self.gnn_layers):
+                graph = maskGen.from_dense_batch(dense)
+                graph = self.gnn_layers[j](graph)
+                j += 1
+                dense, mask = maskGen.to_dense_batch(graph)
+        return maskGen.from_dense_batch(dense)
+
+    def _run_parallel(self, batch, maskGen):
+        # GT 全栈 + GNN 全栈，然后 concat→MLP
+        dense, mask = maskGen(batch)
+        gt_out = self._gt_stack(dense, mask)
+
+        graph = maskGen.from_dense_batch(dense)
+        gnn_out_graph = self._gnn_stack(graph)
+        gnn_out_dense, _ = maskGen.to_dense_batch(gnn_out_graph)
+
+        fused = torch.cat([gt_out.x, gnn_out_dense.x], dim=-1)
+        gt_out.x = self.parallel_fuse(fused)
+        return maskGen.from_dense_batch(gt_out)
+
+    # ---------------- 标准 forward（零判断） ----------------
     def forward(self, batch):
-        
-        maskGenerator = register.mask_dict[cfg.mask.name](batch).to(cfg.device)
-
-            
         batch = self.encoder(batch)
-        
-        batch.x = self.input_drop(batch.x)
+        if self.pre_mp is not None:
+            batch = self.pre_mp(batch)
+        maskGen = register.mask_dict[cfg.mask.name](batch)
+        graph_batch = self.run(batch, maskGen)
 
-        num_nodes_dict = None
-        batch,mask = maskGenerator(batch)
-        for i in range(cfg.gt.layers):
-            batch = self.convs[i](batch,mask)
-            if self.has_gnn == True:
-                batch,mask = maskGenerator.from_dense_batch(batch)
-                #TODO
-        batch = maskGenerator.from_dense_batch(batch)
+        if self.l2_norm and hasattr(graph_batch, 'x'):
+            graph_batch.x = F.normalize(graph_batch.x, p=2, dim=-1)
 
-        
-        
-        if self.num_virtual_nodes > 0:
-            # Remove the virtual nodes
-            for node_type in batch.node_types:
-                batch[node_type].x = batch[node_type].x[:num_nodes_dict[node_type], :]
-                batch[node_type].num_nodes -= self.num_virtual_nodes
-
-
-        # Output L2 norm
-        if cfg.gt.l2_norm:
-            for node_type in batch.node_types:
-                batch[node_type].x = F.normalize(batch[node_type].x, p=2, dim=-1) 
-
-        return self.post_gt(batch)
+        return self.post_head(graph_batch)
+    

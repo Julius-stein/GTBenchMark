@@ -17,7 +17,7 @@ def set_cfg_gt(cfg):
     cfg.gt.head = 'default'
     
     # Type of Graph Transformer layer to use
-    cfg.gt.layer_type = 'SANLayer'
+    cfg.gt.layer_type = 'GraphTransformerLayer'
 
     # Number of Transformer layers in the model
     cfg.gt.layers = 3
@@ -69,6 +69,8 @@ def set_cfg_gt(cfg):
     
     cfg.gt.act = 'relu'
 
+    cfg.gt.activation_dropout =0.0
+
     cfg.gt.encoder_type = 'concatenate'
 
     # BigBird model/GPS-BigBird layer.
@@ -95,4 +97,24 @@ def set_cfg_gt(cfg):
     # cfg.gt.bigbird.layer_norm_eps = 1e-6
 
     cfg.gt.ffn_dim = 0
-    cfg.gt.use_graph_token = False
+    cfg.gt.layers_post_gt = 1
+
+    cfg.gt.use_flex = False
+    cfg.gt.flex_block_size = 64
+    # cfg.gt.use_graph_token = False
+
+    # NodeFormer
+    cfg.gt.edge_loss_weight= 0.1
+    cfg.gt.graph_weight= 0.8
+    cfg.gt.kernel_trans= "softmax"
+    cfg.gt.nb_random_features= 30
+    cfg.gt.rb_order= 1
+    cfg.gt.rb_trans= "sigmoid"
+    cfg.gt.use_act= True
+    cfg.gt.use_edge_loss= True
+    cfg.gt.use_gumbel= True
+    cfg.gt.use_jk = False
+    cfg.gt.nb_gumbel_sample = 10
+    cfg.gt.projection_matrix_type = 'a'
+
+    cfg.gt.tau = 1.0   # also used by CoBFormer

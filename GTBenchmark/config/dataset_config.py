@@ -27,5 +27,21 @@ def dataset_cfg(cfg):
 
     cfg.dataset.preprocess = "None"
 
+    cfg.dataset.add_self_loops = False
+
     # NAG preprocess
     cfg.dataset.hop = 3 
+
+    cfg.dataset.heteroProcess = False
+
+    # Expander preprocess
+    cfg.dataset.add_edge_index= True
+    cfg.dataset.dist_cutoff= 510
+    cfg.dataset.dist_enable= False
+    cfg.dataset.exp_algorithm= "Random-d"
+    cfg.dataset.exp_count= 1
+    cfg.dataset.exp_deg= 3
+    cfg.dataset.exp_max_num_iters= 100
+    cfg.dataset.num_virt_node= 0
+    cfg.dataset.rb_order= 1
+    cfg.dataset.use_exp_edges= True

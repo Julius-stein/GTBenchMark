@@ -7,9 +7,9 @@ from numpy.linalg import eigvals
 from torch_geometric.utils import (get_laplacian, to_scipy_sparse_matrix,
                                    to_undirected, to_dense_adj, scatter)
 from torch_geometric.utils.num_nodes import maybe_num_nodes
-# from .graphormer import graphormer_pre_processing
-from .graphormer_slide import graphormer_preprocess_light
-
+from .graphormer import graphormer_pre_processing_NEW
+# from .graphormer_slide import graphormer_preprocess_light
+# from GTBenchmark.encoder.graphormer_encoder_copy import graphormer_pre_processing
 
 def compute_posenc_stats(data, pe_types, is_undirected, cfg):
     """Precompute positional encodings for the given graph.
@@ -142,7 +142,7 @@ def compute_posenc_stats(data, pe_types, is_undirected, cfg):
         #     data,
         #     cfg.posenc_GraphormerBias.num_spatial_types
         # )
-        data = graphormer_preprocess_light(
+        data = graphormer_pre_processing_NEW(
             data,
             cfg.posenc_GraphormerBias.num_spatial_types
         )

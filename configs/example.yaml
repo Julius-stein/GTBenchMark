@@ -38,6 +38,7 @@ model:
 gt:
   node_encoder_list: ['RawEncoder']
   edge_encoder_list: []
+  layer_type: GraphTransformerLayer
   attn_type: GeneralAttention
   layers: 3
   attn_heads: 8

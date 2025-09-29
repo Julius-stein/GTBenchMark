@@ -1,0 +1,609 @@
+from __future__ import annotations
+"""
+perf_monitor_v2.py — 轻量、干净、GraphGym 友好的训练计时/日志
+
+| mode      | E2E计时 | 模块计时 | OP profiler | 典型用途           |
+|-----------|---------|----------|-------------|--------------------|
+| off       | ✗       | ✗        | ✗           | 纯训练、零开销      |
+| light     | ✓       | ✗        | ✗           | 常开看迭代/吞吐     |
+| modules   | ✓       | ✓        | ✗           | 找最慢模块（Top-K） |
+| op-only   | ✗       | ✗        | ✓（独占）    | 火焰图/调用栈/显存  |
+| full      | ✓       | ✓        | ✓           | 深度诊断（短开）    |
+
+要点
+- TensorBoard 写入器惰性；仅 rank0 写；保留最近 N 个 events
+- E2E：Welford + EWMA；一张 e2e.csv 同时包含【逐步】与【epoch 汇总】
+- 模块计时：叶子模块、include/exclude、Top-K（TB + CSV）
+- OP profiler：使用 torch.profiler.schedule；在每个 iter 调 `profiler.step()`
+- NVTX 可选：iteration / section 打标
+"""
+
+import os, time, math, csv, glob, re
+from contextlib import contextmanager
+from typing import Dict, Optional, Callable, List, Tuple, Iterable
+
+from GTBenchmark.graphgym.config import cfg as _CFG
+
+import torch
+from torch import nn
+from torch.profiler import profile, schedule, ProfilerActivity, tensorboard_trace_handler
+
+# ---------------- TensorBoard（惰性） ----------------
+try:
+    from torch.utils.tensorboard.writer import SummaryWriter as _TBWriter
+    _HAS_TB = True
+except Exception:
+    _TBWriter = None
+    _HAS_TB = False
+
+
+# =========================
+# 小工具
+# =========================
+class _NullWriter:
+    def add_scalar(self, *a, **k): pass
+    def add_text(self, *a, **k): pass
+    def add_histogram(self, *a, **k): pass
+    def flush(self): pass
+    def close(self): pass
+
+class _EWMA:
+    __slots__ = ("avg", "alpha", "inited")
+    def __init__(self, alpha: float=0.2):
+        self.alpha = float(alpha); self.avg = 0.0; self.inited = False
+    def add(self, x: float):
+        x = float(x)
+        if not self.inited:
+            self.avg = x; self.inited = True
+        else:
+            self.avg = self.alpha * x + (1.0 - self.alpha) * self.avg
+        return self.avg
+
+class _Welford:
+    __slots__ = ("n", "mean", "M2")
+    def __init__(self):
+        self.n = 0; self.mean = 0.0; self.M2 = 0.0
+    def add(self, x: float):
+        self.n += 1
+        d = x - self.mean
+        self.mean += d / self.n
+        self.M2 += d * (x - self.mean)
+    def stats(self) -> Tuple[float, float]:
+        if self.n < 2: return self.mean, 0.0
+        var = self.M2 / (self.n - 1)
+        return self.mean, math.sqrt(var)
+    def ci95(self) -> float:
+        if self.n < 2: return 0.0
+        _, std = self.stats()
+        return 1.96 * std / math.sqrt(self.n)
+
+def _is_rank0() -> bool:
+    try:
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            return torch.distributed.get_rank() == 0
+    except Exception:
+        pass
+    r = os.environ.get('RANK') or os.environ.get('LOCAL_RANK')
+    return (r is None) or (str(r) == '0')
+
+def _cleanup_old_events(logdir: str, keep_latest: int):
+    """保留 logdir 下最近 keep_latest 个 tfevents 文件（非递归）。"""
+    if keep_latest is None or keep_latest <= 0: return
+    paths = sorted(glob.glob(os.path.join(logdir, 'events.out.tfevents.*')),
+                   key=os.path.getmtime, reverse=True)
+    for p in paths[keep_latest:]:
+        try: os.remove(p)
+        except Exception: pass
+
+
+# =========================
+# 模块计时（叶子模块）
+# =========================
+class ModuleTimer:
+    """
+    仅对“叶子模块”计时；支持 include/exclude/regex 过滤。
+    Top-K 输出：TB 标量 + Markdown 表 + 直方图；CSV 写在 PerfMonitor.step()。
+    """
+    def __init__(
+        self,
+        model: nn.Module,
+        *,
+        use_cuda_events: bool = False,
+        include_modules: Optional[List[str]] = None,
+        exclude_modules: Optional[List[str]] = None,
+        include_regex: Optional[Iterable[str]] = None,
+        exclude_regex: Optional[Iterable[str]] = None,
+        topk_per_window: int = 20,
+    ):
+        self.use_cuda_events = bool(use_cuda_events and torch.cuda.is_available())
+        self.include_modules = include_modules or None
+        self.exclude_modules = exclude_modules or None
+        self.include_re = [re.compile(p) for p in (include_regex or [])]
+        self.exclude_re = [re.compile(p) for p in (exclude_regex or [])]
+        self.topk = int(max(1, topk_per_window))
+
+        self.window: Dict[str, _Welford] = {}
+        self._handles: List[torch.utils.hooks.RemovableHandle] = []
+        self._register_leaf_hooks(model)
+
+    def _selected(self, name: str) -> bool:
+        sel = True
+        if self.include_modules is not None:
+            sel = any(s in name for s in self.include_modules)
+        if self.include_re:
+            sel = sel and any(r.search(name) for r in self.include_re)
+        if self.exclude_modules is not None and any(s in name for s in self.exclude_modules):
+            return False
+        if any(r.search(name) for r in self.exclude_re):
+            return False
+        return sel
+
+    def _register_leaf_hooks(self, model: nn.Module):
+        if self.use_cuda_events:
+            def mk_hooks(name: str):
+                start_ev = torch.cuda.Event(enable_timing=True)
+                end_ev   = torch.cuda.Event(enable_timing=True)
+                def pre(_m, _i): start_ev.record()
+                def post(_m, _i, _o):
+                    end_ev.record(); torch.cuda.current_stream().synchronize()
+                    ms = start_ev.elapsed_time(end_ev)
+                    self._add(name, ms / 1000.0)
+                return pre, post
+        else:
+            def mk_hooks(name: str):
+                state = {}
+                def pre(_m, _i): state['t0'] = time.perf_counter()
+                def post(_m, _i, _o):
+                    t1 = time.perf_counter(); t0 = state.get('t0', t1)
+                    self._add(name, t1 - t0)
+                return pre, post
+
+        registered = 0
+        for n, m in model.named_modules():
+            if list(m.children()):  # 仅叶子
+                continue
+            if not n:
+                continue
+            if not self._selected(n):
+                continue
+            pre, post = mk_hooks(n)
+            self._handles.append(m.register_forward_pre_hook(pre))
+            try:
+                self._handles.append(m.register_forward_hook(post))
+            except TypeError:
+                self._handles.append(m.register_forward_hook(lambda mod, i, o: post(mod, i, o)))
+            registered += 1
+        if _is_rank0():
+            print(f"[PerfMonitor] ModuleTimer registered {registered} leaf modules.")
+
+    def _add(self, name: str, sec: float):
+        acc = self.window.get(name)
+        if acc is None: acc = self.window[name] = _Welford()
+        acc.add(float(sec))
+
+    def dump_to_tb(self, writer, step: int, tag: str='train'):
+        if not self.window:
+            return
+        items = [(n, acc.stats()[0], acc) for n, acc in self.window.items() if acc.n > 0]
+        items.sort(key=lambda x: x[1], reverse=True)
+        items = items[:self.topk]
+
+        for n, mean, _acc in items:
+            writer.add_scalar(f"{tag}/block_time/avg_sec/{n}", mean, step)
+
+        rows = ["| # | Module | mean(s) | ±95% CI (s) | n |",
+                "|:-:|:--|--:|--:|--:|"]
+        for i, (n, mean, acc) in enumerate(items, 1):
+            rows.append(f"| {i} | {n} | {mean:.6f} | {acc.ci95():.6f} | {acc.n} |")
+        writer.add_text(f"{tag}/block_time/summary_ci95", "\n".join(rows), step)
+
+        writer.add_histogram(f"{tag}/block_time/hist_mean",
+                             torch.tensor([m for _, m, _ in items]), step)
+
+    def reset(self):
+        self.window.clear()
+
+    def close(self):
+        for h in self._handles:
+            try: h.remove()
+            except Exception: pass
+        self._handles.clear()
+
+
+# =========================
+# PerfMonitor
+# =========================
+class PerfMonitor:
+    """
+    - off: 全关
+    - light: 仅 E2E
+    - modules: E2E + 模块计时
+    - op-only: 仅 OP（独占，使用 schedule；每步 profiler.step()）
+    - full: E2E + 模块计时 + OP
+    """
+    def __init__(self, model: Optional[nn.Module]=None):
+        P = getattr(_CFG, 'perf', {}) or {}
+
+        def _g(name, default):
+            return getattr(P, name, P.get(name, default)) if hasattr(P, name) else P.get(name, default)
+
+        # ---- 配置（不新增 cfg 字段）
+        self.mode = str(_g('mode', 'light')).lower()
+        self.logdir: str = str(_g('logdir', './runs/perf'))
+        self.rank_zero_only: bool = bool(_g('rank_zero_only', True))
+
+        self.enable_tensorboard: bool = bool(_g('enable_tensorboard', True)) and _HAS_TB
+        self.tb_flush_secs: int = int(_g('tb_flush_secs', 120))
+        self.tb_max_queue: int = int(_g('tb_max_queue', 4000))
+        self.tb_suffix: str = str(_g('tb_filename_suffix', ''))
+        self.keep_latest_event_files: int = int(_g('keep_latest_event_files', 2))
+
+        self.scalar_every: int = int(_g('scalar_every_n_steps', 50))
+
+        # E2E
+        self.e2e_every: int = int(_g('e2e_log_every_n_steps', 50))
+        self.ewma_alpha: float = float(_g('ewma_alpha', 0.2))
+
+        # 模块计时
+        self.use_cuda_events: bool = bool(_g('use_cuda_events', False))
+        self.include_modules = _g('include_modules', None)
+        self.exclude_modules = _g('exclude_modules', None)
+        self.topk_modules: int = int(_g('module_topk_per_window', 20))
+        self.enable_module_timer_cfg: bool = bool(_g('enable_module_timer', False))
+
+        # OP profiler（由 mode 决定是否启用；使用 schedule）
+        self.enable_op_profiler: bool = bool(_g('enable_op_profiler', False))
+        self.op_exclusive: bool = bool(_g('op_exclusive', True))
+        self.record_shapes: bool = bool(_g('record_shapes', False))
+        self.profile_memory: bool = bool(_g('profile_memory', False))
+        self.with_stack: bool = bool(_g('with_stack', False))
+        self.with_modules: bool = bool(_g('with_modules', False))
+
+        # CSV
+        self.enable_csv: bool = bool(_g('enable_csv', True))
+        self.csv_every: int = int(_g('csv_every_n_steps', 50))
+        self.csv_e2e: str = str(_g('csv_filename_e2e', 'e2e.csv'))
+        self.csv_modules: str = str(_g('csv_filename_modules', 'modules.csv'))
+
+        # NVTX
+        self.emit_nvtx: bool = bool(_g('emit_nvtx', False)) and torch.cuda.is_available()
+
+        # ---- rank 过滤 / mode->功能
+        self._is_active_rank = (not self.rank_zero_only) or _is_rank0()
+
+        _do_e2e = self._is_active_rank and (self.mode in {'light', 'modules', 'full'})
+        _do_modules = self._is_active_rank and (self.mode in {'modules', 'full'})
+        if self._is_active_rank and self.mode == 'light' and self.enable_module_timer_cfg:
+            _do_modules = True
+        _do_op = self._is_active_rank and ((self.mode in {'op-only', 'full'}) or self.enable_op_profiler)
+
+        if self.mode == 'op-only' and self.op_exclusive:
+            _do_e2e = False
+            _do_modules = False
+
+        self._do_e2e = _do_e2e
+        self._do_modules = _do_modules
+        self._do_op = _do_op
+
+        # ---- 完全关闭
+        self._disabled = (self.mode == 'off') or (not self._is_active_rank)
+        if self._disabled:
+            self._writer = _NullWriter()
+            self._profiler = None
+            self._module_timer = None
+            self._e2e_state = None
+            self.global_step = 0
+            self._csv_e2e = None
+            self._csv_modules = None
+            self._csv_opened = False
+            self._last_e2e_row = None
+            # epoch 累计
+            self._epoch_active = False
+            self._epoch_t0 = 0.0
+            self._epoch_iter_sum_total = 0.0
+            self._epoch_iter_count = 0
+            return
+
+        # ---- 目录 & 先清理旧 events
+        os.makedirs(self.logdir, exist_ok=True)
+        _cleanup_old_events(self.logdir, self.keep_latest_event_files)
+
+        # ---- TB 写入器惰性
+        self._writer = None
+        def _get_writer():
+            if self._writer is None:
+                if self.enable_tensorboard and _HAS_TB:
+                    self._writer = _TBWriter(
+                        log_dir=self.logdir,
+                        flush_secs=self.tb_flush_secs,
+                        max_queue=self.tb_max_queue,
+                        filename_suffix=self.tb_suffix,
+                    )
+                else:
+                    self._writer = _NullWriter()
+            return self._writer
+        self._get_writer: Callable[[], _TBWriter | _NullWriter] = _get_writer
+
+        # ---- E2E（逐步）
+        self.global_step = 0
+        self._e2e_state = None
+        self._e2e_acc = {'total': _Welford(), 'throughput': _Welford()}
+        self._e2e_ewma = {'total': _EWMA(self.ewma_alpha), 'throughput': _EWMA(self.ewma_alpha)}
+        self._last_e2e_row = None
+
+        # ---- E2E（epoch 汇总，写入同一 e2e.csv）
+        self._epoch_active = False
+        self._epoch_t0 = 0.0
+        self._epoch_iter_sum_total = 0.0
+        self._epoch_iter_count = 0
+
+        # ---- 模块计时
+        self._module_timer = None
+        if self._do_modules and model is not None:
+            self._module_timer = ModuleTimer(
+                model,
+                use_cuda_events=self.use_cuda_events,
+                include_modules=self.include_modules,
+                exclude_modules=self.exclude_modules,
+                topk_per_window=self.topk_modules,
+            )
+
+        # ---- OP profiler（schedule；在 step() 中推进）
+        self._profiler = None
+        if self._do_op:
+            acts = [ProfilerActivity.CPU]
+            if torch.cuda.is_available(): acts.append(ProfilerActivity.CUDA)
+            prof_sched = schedule(wait=10, warmup=5, active=5, repeat=1)
+            self._profiler = profile(
+                activities=acts,
+                schedule=prof_sched,
+                on_trace_ready=tensorboard_trace_handler(self.logdir),
+                record_shapes=self.record_shapes,
+                profile_memory=self.profile_memory,
+                with_stack=self.with_stack,
+                with_modules=self.with_modules,
+            )
+            self._profiler.__enter__()
+            if _is_rank0():
+                print(f"[PerfMonitor] Torch profiler scheduled (mode={self.mode}). "
+                      f"wait=10, warmup=5, active=10, repeat=1. Trace dir: {self.logdir}")
+
+        # ---- CSV：惰性打开
+        self._csv_e2e = None
+        self._csv_modules = None
+        self._csv_opened = False
+
+    # ---------------- CSV 工具 ----------------
+    def _csv_open_once(self):
+        if not self.enable_csv or self._csv_opened:
+            return
+        os.makedirs(self.logdir, exist_ok=True)
+        try:
+            self._csv_e2e = open(os.path.join(self.logdir, self.csv_e2e), 'a', newline='')
+            if self._csv_e2e.tell() == 0:
+                # 一张表：逐步 + epoch 汇总
+                csv.writer(self._csv_e2e).writerow(
+                    ['step', 'tag', 'total_sec', 'throughput', 'ewma_total', 'ewma_throughput',
+                     'epoch_total_sec', 'epoch_avg_iter_sec']
+                )
+        except Exception:
+            self._csv_e2e = None
+        try:
+            self._csv_modules = open(os.path.join(self.logdir, self.csv_modules), 'a', newline='')
+            if self._csv_modules.tell() == 0:
+                csv.writer(self._csv_modules).writerow(
+                    ['step', 'tag', 'module', 'mean_sec', 'ci95', 'n']
+                )
+        except Exception:
+            self._csv_modules = None
+        self._csv_opened = True
+
+    # ---------------- E2E：epoch 汇总（合并迭代指标，不留空） ----------------
+    def epoch_start(self, tag: str='train'):
+        if self._disabled: return
+        self._epoch_active = True
+        self._epoch_t0 = time.perf_counter()
+        self._epoch_iter_sum_total = 0.0
+        self._epoch_iter_count = 0
+        self._epoch_tag = tag
+
+    def epoch_end(self, tag: Optional[str]=None):
+        if self._disabled or not self._epoch_active: return
+        ep_tag = tag or getattr(self, "_epoch_tag", "train")
+        epoch_total = time.perf_counter() - self._epoch_t0
+        iters = max(1, int(self._epoch_iter_count))
+        avg_iter_sec = self._epoch_iter_sum_total / iters
+
+        # TensorBoard
+        if self.enable_tensorboard:
+            w = self._get_writer()
+            w.add_scalar(f"{ep_tag}/epoch/total_sec", epoch_total, self.global_step)
+            w.add_scalar(f"{ep_tag}/epoch/avg_iter_sec", avg_iter_sec, self.global_step)
+
+        # CSV（合并最近一次迭代指标，不再留空）
+        if self.enable_csv:
+            self._csv_open_once()
+            if self._csv_e2e is not None and not self._csv_e2e.closed:
+                iter_cols = ['','','','']
+                if self._last_e2e_row is not None:
+                    # columns: [step, tag, total_sec, throughput, ewma_total, ewma_throughput, '', '']
+                    iter_cols = self._last_e2e_row[2:6]
+                row = [
+                    self.global_step, ep_tag,
+                    *iter_cols,
+                    f"{epoch_total:.6f}", f"{avg_iter_sec:.6f}"
+                ]
+                csv.writer(self._csv_e2e).writerow(row)
+                # 这行已经写了，避免 step() 再写一次
+                self._last_e2e_row = None
+
+        self._epoch_active = False
+
+    # ---------------- E2E（逐步） ----------------
+    @contextmanager
+    def profiled_step(self):
+        yield
+
+    @contextmanager
+    def iteration(self, tag: str='train', batch_size: Optional[int]=None):
+        if not self._do_e2e:
+            yield; return
+
+        t0 = time.perf_counter()
+        sec_map: Dict[str, float] = {}
+        if getattr(self, 'emit_nvtx', False):
+            try: torch.cuda.nvtx.range_push(f"iter:{tag}")
+            except Exception: pass
+        try:
+            self._e2e_state = {'tag': tag, 'secs': sec_map, 'batch_size': batch_size}
+            yield
+        finally:
+            if getattr(self, 'emit_nvtx', False):
+                try: torch.cuda.nvtx.range_pop()
+                except Exception: pass
+
+            total = time.perf_counter() - t0
+            self._e2e_state = None
+
+            # 累计（逐步）
+            self._e2e_acc['total'].add(total)
+            ew_total = self._e2e_ewma['total'].add(total)
+
+            if batch_size and total > 0:
+                thr = float(batch_size) / total
+                self._e2e_acc['throughput'].add(thr)
+                ew_thr = self._e2e_ewma['throughput'].add(thr)
+            else:
+                thr = 0.0; ew_thr = self._e2e_ewma['throughput'].avg
+
+            # 累计到 epoch
+            if self._epoch_active:
+                self._epoch_iter_sum_total += total
+                self._epoch_iter_count += 1
+
+            w_step = self.global_step + 1
+            # TB（节流）
+            if self.enable_tensorboard and (w_step % self.e2e_every == 0):
+                w = self._get_writer()
+                w.add_scalar(f"{tag}/iter/total_sec", total, w_step)
+                w.add_scalar(f"{tag}/iter/ewma_total_sec", ew_total, w_step)
+                if thr > 0:
+                    w.add_scalar(f"{tag}/throughput/samples_per_sec", thr, w_step)
+                    w.add_scalar(f"{tag}/throughput/ewma_samples_per_sec", ew_thr, w_step)
+                for name, sec in sec_map.items():
+                    w.add_scalar(f"{tag}/iter/{name}_sec", sec, w_step)
+                w.add_histogram(f"{tag}/iter/total_hist", torch.tensor([total]), w_step)
+
+            # CSV（逐步）：缓存行；等 step() 节流落盘
+            if self.enable_csv:
+                self._last_e2e_row = [w_step, tag,
+                                      f"{total:.6f}", f"{thr:.3f}", f"{ew_total:.6f}", f"{ew_thr:.3f}",
+                                      '', '']  # 末两列留给 epoch 汇总
+
+    @contextmanager
+    def section(self, name: str):
+        if not self._do_e2e:
+            yield; return
+        if getattr(self, 'emit_nvtx', False):
+            try: torch.cuda.nvtx.range_push(f"sec:{name}")
+            except Exception: pass
+        t0 = time.perf_counter()
+        try:
+            yield
+        finally:
+            if getattr(self, 'emit_nvtx', False):
+                try: torch.cuda.nvtx.range_pop()
+                except Exception: pass
+            sec = time.perf_counter() - t0
+            if self._e2e_state is not None:
+                secs = self._e2e_state['secs']
+                secs[name] = secs.get(name, 0.0) + sec
+
+    # ----------------（可选）DDP 通信计时 ----------------
+    def attach_ddp_comm_timing(self, ddp_model: torch.nn.parallel.DistributedDataParallel):
+        try:
+            from torch.distributed.algorithms.ddp_comm_hooks.default_hooks import allreduce_hook as _ar
+        except Exception:
+            print('[PerfMonitor] ddp_comm hook not available.')
+            return
+        def timing_hook(state, bucket):
+            t0 = time.perf_counter(); fut = _ar(state, bucket)
+            def _done(fut):
+                dt = time.perf_counter() - t0
+                if self._e2e_state is not None:
+                    secs = self._e2e_state['secs']
+                    secs['ddp_comm'] = secs.get('ddp_comm', 0.0) + dt
+                return fut.value()
+            return fut.then(_done)
+        ddp_model.register_comm_hook(None, timing_hook)
+
+    # ---------------- 每步收尾 ----------------
+    def step(self, tag: str='train'):
+        self.global_step += 1
+
+        # 推进 OP profiler（有则每步都 step）
+        if self._profiler is not None:
+            try:
+                self._profiler.step()
+            except Exception as e:
+                if _is_rank0():
+                    print(f"[PerfMonitor] profiler.step() error: {e}. Disabling profiler.")
+                try:
+                    self._profiler.__exit__(None, None, None)
+                except Exception:
+                    pass
+                self._profiler = None
+
+        # 写 E2E CSV（逐步，节流）
+        if self.enable_csv and self._last_e2e_row is not None and (self.global_step % self.csv_every == 0):
+            self._csv_open_once()
+            if self._csv_e2e is not None and not self._csv_e2e.closed:
+                csv.writer(self._csv_e2e).writerow(self._last_e2e_row)
+            self._last_e2e_row = None
+
+        # 模块计时窗口输出
+        if self._module_timer is not None and (self.global_step % self.scalar_every == 0):
+            w = self._get_writer()
+            self._module_timer.dump_to_tb(w, self.global_step, tag=tag)
+
+            if self.enable_csv and self._module_timer.window:
+                self._csv_open_once()
+                if self._csv_modules is not None and not self._csv_modules.closed:
+                    items = [(n, acc.stats()[0], acc)
+                             for n, acc in self._module_timer.window.items() if acc.n > 0]
+                    items.sort(key=lambda x: x[1], reverse=True)
+                    items = items[:self.topk_modules]
+                    wr = csv.writer(self._csv_modules)
+                    for n, mean, acc in items:
+                        wr.writerow([self.global_step, tag, n, f"{mean:.6f}", f"{acc.ci95():.6f}", acc.n])
+            self._module_timer.reset()
+
+    # ---------------- 关闭 ----------------
+    def close(self):
+        # 关 profiler（若仍在）
+        if self._profiler is not None:
+            try: self._profiler.__exit__(None, None, None)
+            except Exception: pass
+            self._profiler = None
+
+        # 关模块计时 hook
+        if self._module_timer is not None:
+            try: self._module_timer.close()
+            except Exception: pass
+
+        # 关 CSV
+        for name in ('_csv_e2e', '_csv_modules'):
+            f = getattr(self, name, None)
+            if f is not None:
+                try: f.flush(); f.close()
+                except Exception: pass
+                finally: setattr(self, name, None)
+
+        # 关 TB
+        if self._writer is not None and not isinstance(self._writer, _NullWriter):
+            try: self._writer.flush(); self._writer.close()
+            except Exception: pass
+
+        # 再清一次旧 events
+        try: _cleanup_old_events(self.logdir, self.keep_latest_event_files)
+        except Exception: pass

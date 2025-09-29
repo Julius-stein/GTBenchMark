@@ -35,7 +35,7 @@ from GTBenchmark.graphgym.optimizer import create_optimizer, create_scheduler
 from GTBenchmark.graphgym.utils.epoch import is_eval_epoch, is_ckpt_epoch
 from GTBenchmark.graphgym.utils.comp_budget import params_count
 from GTBenchmark.train.custom_train import eval_epoch
-from GTBenchmark.utils import cfg_to_dict, flatten_dict, make_wandb_name, new_optimizer_config, new_scheduler_config
+from GTBenchmark.utils.utils import cfg_to_dict, flatten_dict, make_wandb_name, new_optimizer_config, new_scheduler_config
 from GTBenchmark.timer import runtime_stats_cuda, is_performance_stats_enabled, enable_runtime_stats, disable_runtime_stats
 
 

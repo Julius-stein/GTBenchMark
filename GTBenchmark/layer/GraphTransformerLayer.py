@@ -1,111 +1,99 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-import GTBenchmark.graphgym.register as register
-from GTBenchmark.graphgym.register import register_layer
-from GTBenchmark.graphgym.config import cfg
+import GTBenchmark.graphgym.register as register 
+from GTBenchmark.graphgym.register import register_layer 
+from GTBenchmark.graphgym.config import cfg 
 
 @register_layer('GraphTransformerLayer')
 class GraphTransformerLayer(nn.Module):
-    """
-        Param: 
-    """
     def __init__(self, dim_h):
         super().__init__()
-        #assert dim_h == cfg.gt.dim_hidden
+        cfg_gt = cfg.gt  # 缓存，少一次全局查找
+        cfg.share.can_flex = (cfg_gt.attn_dropout == 0.0) and cfg_gt.use_flex
         self.out_channels = dim_h
-        self.num_heads = cfg.gt.attn_heads
-        self.dropout = cfg.gt.dropout
-        self.residual = cfg.gt.residual
-        self.layer_norm = cfg.gt.layer_norm        
-        self.batch_norm = cfg.gt.batch_norm
+        self.num_heads = cfg_gt.attn_heads
+        self.residual = cfg_gt.residual
+        self.prepend_norm = cfg_gt.prepend_norm
+
+        # —— 缓存超参数 —— #
+        self.p_res = float(cfg_gt.dropout)
+        self.p_act = float(getattr(cfg_gt, "activation_dropout", 0.0))
+        self.use_ln = bool(cfg_gt.layer_norm)
+        self.use_bn = bool(cfg_gt.batch_norm)
+        self.ffn_dim = (cfg_gt.ffn_dim if cfg_gt.ffn_dim != 0 else dim_h * 2)
+
+        # —— Attention —— #
+        # 你的 GeneralAttn / MHA 注册保持不变
+        self.attention = register.layer_dict[cfg_gt.attn_type](
+            dim_h, self.num_heads, cfg_gt.attn_dropout
+        )
+
+        # —— Norm 组合成模块，避免前向分支 —— #
+        def build_norm():
+            layers = []
+            if self.use_ln: layers.append(nn.LayerNorm(dim_h, eps=1e-5))
+            if self.use_bn: layers.append(nn.BatchNorm1d(dim_h))
+            return nn.Sequential(*layers) if layers else nn.Identity()
+
+        self.norm1 = build_norm()
+        self.norm2 = build_norm()
+
+        # —— MLP —— #
+        self.fc1 = nn.Linear(dim_h, self.ffn_dim)
         self.act = register.act_dict[cfg.gt.act]
-        self.prepend_norm = cfg.gt.prepend_norm
+        self.drop_act = nn.Dropout(self.p_act) if self.p_act > 0 else nn.Identity()
+        self.fc2 = nn.Linear(self.ffn_dim, dim_h)
 
-        
-        self.ffn_dim = cfg.gt.ffn_dim if cfg.gt.ffn_dim!=0 else dim_h*2
-        
-        
-        self.attention = register.layer_dict[cfg.gt.attn_type](dim_h, self.num_heads,cfg.gt.attn_dropout)
-        
-        # self.preattnLayernorm = nn.LayerNorm(dim_h)
-        if self.layer_norm:
-            self.layer_norm1 = nn.LayerNorm(dim_h)
-            
-        if self.batch_norm:
-            self.batch_norm1 = nn.BatchNorm1d(dim_h)
-        
-        # FFN
-        self.FFN_layer1 = nn.Linear(dim_h, self.ffn_dim)
-        self.FFN_layer2 = nn.Linear(self.ffn_dim, dim_h)
+        # —— 残差 Dropout —— #
+        self.drop_res = nn.Dropout(self.p_res) if self.p_res > 0 else nn.Identity()
 
-        if self.layer_norm:
-            self.layer_norm2 = nn.LayerNorm(dim_h)
-            
-        if self.batch_norm:
-            self.batch_norm2 = nn.BatchNorm1d(dim_h)
-        
-    def forward(self, batch,mask):
+        # —— 绑定前向以移除运行时分支 —— #
+        self._forward = self._forward_preln if self.prepend_norm else self._forward_postln
 
-        h_in1 = batch.x
+    # ====== Pre-LN 变体 ====== #
+    def _forward_preln(self, batch, mask):
+        x = batch.x
 
-        # --- 自注意力块 ---
-        if self.prepend_norm:                 # pre-LN
-            if self.layer_norm:
-                batch.x = self.layer_norm1(batch.x)
-            if self.batch_norm:
-                batch.x = self.batch_norm1(batch.x)
+        # 1) Attn block (Pre-Norm)
+        x_norm = self.norm1(x)
+        batch.x = x_norm               # 避免创建新 Batch，attention 内部请就地用 batch.x
+        batch = self.attention(batch, mask)
+        h = self.drop_res(batch.x)
+        x = x + h                      # 非原地，利于 torch.compile
 
-        batch = self.attention(batch, mask)   # GeneralAttn 内部已做 SDPA
-        h = batch.x
-
-        # attention 输出后做 dropout（官方在 attn 输出有 dropout）
-        h = F.dropout(h, self.dropout, training=self.training)
-
-        # 第一条残差
-        h = h_in1 + h
-
-        # post-LN（仅在 post-LN 模式才做）
-        if not self.prepend_norm:
-            if self.layer_norm:
-                h = self.layer_norm1(h)
-            if self.batch_norm:
-                h = self.batch_norm1(h)
-
-        # --- FFN 块 ---
-        h_in2 = h
-
-        # pre-LN：FFN 前置 LN
-        if self.prepend_norm:
-            if self.layer_norm:
-                h = self.layer_norm2(h)
-            if self.batch_norm:
-                h = self.batch_norm2(h)
-
-        # FC1 → 激活 → activation_dropout（单独的激活后 dropout，官方叫 activation_dropout）
-        h = self.FFN_layer1(h)
+        # 2) FFN block (Pre-Norm)
+        h = self.norm2(x)
+        h = self.fc1(h)
         h = self.act(h)
-        h = F.dropout(h, getattr(cfg.gt, "activation_dropout", 0.0), training=self.training)
+        h = self.drop_act(h)
+        h = self.fc2(h)
+        h = self.drop_res(h)
+        x = x + h
 
-        # FC2 → dropout
-        h = self.FFN_layer2(h)
-        h = F.dropout(h, self.dropout, training=self.training)
-
-        # 第二条残差
-        h = h_in2 + h
-
-        # post-LN：FFN 后置 LN（仅在 post-LN 模式才做）
-        if not self.prepend_norm:
-            if self.layer_norm:
-                h = self.layer_norm2(h)
-            if self.batch_norm:
-                h = self.batch_norm2(h)
-
-        batch.x = h
+        batch.x = x
         return batch
 
-        
-    def __repr__(self):
-        return '{}(out_channels={}, heads={}, residual={})'.format(self.__class__.__name__,
-                                             self.out_channels, self.num_heads, self.residual)
+    # ====== Post-LN 变体 ====== #
+    def _forward_postln(self, batch, mask):
+        x = batch.x
+
+        # 1) Attn block
+        batch.x = x
+        batch = self.attention(batch, mask)
+        h = self.drop_res(batch.x)
+        x = self.norm1(x + h)
+
+        # 2) FFN block
+        h = self.fc1(x)
+        h = self.act(h)
+        h = self.drop_act(h)
+        h = self.fc2(h)
+        h = self.drop_res(h)
+        x = self.norm2(x + h)
+
+        batch.x = x
+        return batch
+
+    def forward(self, batch, mask):
+        return self._forward(batch, mask)

@@ -45,6 +45,7 @@ gt:
   node_encoder_list: ['RawEncoder']
   edge_encoder_list: []
   attn_type: GeneralAttention
+  layer_type: GraphTransformerLayer
   layers: 3
   attn_heads: 8
   dim_hidden: 256  

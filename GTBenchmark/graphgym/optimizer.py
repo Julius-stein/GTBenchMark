@@ -15,12 +15,13 @@ class OptimizerConfig:
     base_lr: float = 0.01
     weight_decay: float = 5e-4
     momentum: float = 0.9  # 'sgd' policy
+    beta: Tuple = (0.9,0.999)
 
 
 @register.register_optimizer('adam')
 def adam_optimizer(params: Iterator[Parameter], base_lr: float,
-                   weight_decay: float) -> Adam:
-    return Adam(params, lr=base_lr, weight_decay=weight_decay)
+                   weight_decay: float,beta:Tuple) -> Adam:
+    return Adam(params, lr=base_lr, weight_decay=weight_decay,betas=beta)
 
 
 @register.register_optimizer('sgd')

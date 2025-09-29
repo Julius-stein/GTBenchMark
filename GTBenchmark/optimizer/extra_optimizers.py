@@ -45,6 +45,11 @@ class ExtendedSchedulerConfig(SchedulerConfig):
     train_mode: str = 'custom'
     eval_period: int = 1
 
+    warmup_updates:int = 60000               # ★ 与脚本一致
+    total_num_updates:int = 400000           # ★ 与脚本一致
+    end_lr:float = 1.0e-9
+    power:float = 1.0 
+
 
 @register.register_scheduler('plateau')
 def plateau_scheduler(optimizer: Optimizer, patience: int,
@@ -249,3 +254,60 @@ def get_polynomial_decay_schedule_with_warmup(
             return decay / lr_init  # as LambdaLR multiplies by lr_init
 
     return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
+@register.register_scheduler('polydecay_warmup_steps')
+def polydecay_warmup_steps(
+    optimizer: Optimizer,
+    warmup_updates: int,        # e.g. 60000
+    total_num_updates: int,     # e.g. 400000
+    end_lr: float = 1e-9,       # tail lr
+    power: float = 1.0,         # 1.0 => linear
+    last_epoch: int = -1,
+):
+    base_lr = optimizer.defaults.get("lr", None)
+    if base_lr is None:
+        raise ValueError("Optimizer.defaults['lr'] is None; set base lr before building scheduler.")
+    if not (end_lr < base_lr):
+        raise ValueError(f"end_lr ({end_lr}) must be smaller than base lr ({base_lr}).")
+    if warmup_updates < 0 or total_num_updates <= 0 or warmup_updates >= total_num_updates:
+        raise ValueError(
+            f"Invalid (warmup_updates={warmup_updates}, total_num_updates={total_num_updates}). "
+            "Require 0 <= warmup_updates < total_num_updates."
+        )
+    logging.info(
+        f"[PolyDecayWarmupSteps] base_lr={base_lr}, warmup_updates={warmup_updates}, "
+        f"total_num_updates={total_num_updates}, end_lr={end_lr}, power={power}"
+    )
+    return get_polynomial_decay_schedule_with_warmup(
+        optimizer=optimizer,
+        num_warmup_steps=warmup_updates,
+        num_training_steps=total_num_updates,
+        lr_end=end_lr,
+        power=power,
+        last_epoch=last_epoch,
+    )
+
+
+@register.register_scheduler('polydecay_warmup_epoch')
+def polydecay_warmup_epoch(
+    optimizer: Optimizer,
+    warmup_epochs: int,     # e.g. 60000 // steps_per_epoch
+    max_epochs: int,        # e.g. 400000 // steps_per_epoch
+    steps_per_epoch: int,   # 必填：每个 epoch 会有多少 optimizer.step()
+    end_lr: float = 1e-9,
+    power: float = 1.0,
+    last_epoch: int = -1,
+):
+    if steps_per_epoch <= 0:
+        raise ValueError("steps_per_epoch must be > 0 for epoch->step adapter.")
+    warmup_updates = warmup_epochs * steps_per_epoch
+    total_num_updates = max_epochs * steps_per_epoch
+    return polydecay_warmup_steps(
+        optimizer=optimizer,
+        warmup_updates=warmup_updates,
+        total_num_updates=total_num_updates,
+        end_lr=end_lr,
+        power=power,
+        last_epoch=last_epoch,
+    )

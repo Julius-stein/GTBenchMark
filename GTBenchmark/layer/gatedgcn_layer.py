@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch_geometric.nn as pyg_nn
 import GTBenchmark.graphgym.register as register
+import torch_geometric.nn as pyg_nn
+from GTBenchmark.graphgym.config import cfg
 from GTBenchmark.graphgym.register import register_layer
 from torch_scatter import scatter
 
@@ -35,8 +36,8 @@ class GatedGCNLayer(pyg_nn.conv.MessagePassing):
 
         self.bn_node_x = nn.BatchNorm1d(out_dim)
         self.bn_edge_e = nn.BatchNorm1d(out_dim)
-        self.act_fn_x = self.activation
-        self.act_fn_e = self.activation
+        self.act_fn_x = self.activation()
+        self.act_fn_e = self.activation()
         self.dropout = dropout
         self.residual = residual
         self.e = None
@@ -135,20 +136,20 @@ class GatedGCNLayer(pyg_nn.conv.MessagePassing):
         return x, e_out
 
 
-# @register_layer('gatedgcnconv')
-# class GatedGCNGraphGymLayer(nn.Module):
-#     """GatedGCN layer.
-#     Residual Gated Graph ConvNets
-#     https://arxiv.org/pdf/1711.07553.pdf
-#     """
-#     def __init__(self, layer_config: LayerConfig, **kwargs):
-#         super().__init__()
-#         self.model = GatedGCNLayer(in_dim=layer_config.dim_in,
-#                                    out_dim=layer_config.dim_out,
-#                                    dropout=0.,  # Dropout is handled by GraphGym's `GeneralLayer` wrapper
-#                                    residual=False,  # Residual connections are handled by GraphGym's `GNNStackStage` wrapper
-#                                    act=layer_config.act,
-#                                    **kwargs)
+@register_layer('gatedgcnconv')
+class GatedGCNGraphGymLayer(nn.Module):
+    """GatedGCN layer.
+    Residual Gated Graph ConvNets
+    https://arxiv.org/pdf/1711.07553.pdf
+    """
+    def __init__(self, layer_config, **kwargs):
+        super().__init__()
+        self.model = GatedGCNLayer(in_dim=layer_config.dim_in,
+                                   out_dim=layer_config.dim_out,
+                                   dropout=0.,  # Dropout is handled by GraphGym's `GeneralLayer` wrapper
+                                   residual=False,  # Residual connections are handled by GraphGym's `GNNStackStage` wrapper
+                                   act=layer_config.act,
+                                   **kwargs)
 
-#     def forward(self, batch):
-#         return self.model(batch)
+    def forward(self, batch):
+        return self.model(batch)

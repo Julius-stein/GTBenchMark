@@ -43,6 +43,7 @@ gt:
   node_encoder_list: ['TypeDictNode',"RWSE"]
   edge_encoder_list: ['TypeDictEdge']
   attn_type: GeneralAttention
+  layer_type: GraphTransformerLayer
   layers: 10
   attn_heads: 8
   dim_hidden: 256  

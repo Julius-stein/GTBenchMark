@@ -1,0 +1,69 @@
+out_dir: ./results/Nodecora
+metric_agg: argmax
+metric_best: accuracy
+dataset:
+  dir: /mnt/data2/duxin/.datasets
+  format: PyG-Planetoid
+  name: cora
+  split_mode: standard
+  task: node
+  task_type: classification
+  transductive: true
+  rb_order: 2
+train:
+  enable_ckpt: false
+  eval_period: 5
+  mode: custom
+  sampler: full_batch
+gnn:
+  mode: "off"
+  layer_type: GCN
+  act: relu
+  agg: mean
+  batchnorm: true
+  dim_inner: 96
+  dropout: 0.4
+  layers_post_mp: 1
+  layers_pre_mp: 1
+  normalize_adj: false
+
+gt:
+  attn_dropout: 0.5
+  batch_norm: true
+  dim_hidden: 96
+  dropout: 0.5
+  layer_norm: false
+  layer_type: NodeFormerConv
+  attn_type: LinearAttn
+  layers: 3
+  attn_heads: 1
+  ffn_dim: 192
+  head: node
+  encoder_type : cascade
+  node_encoder_list: []
+  edge_encoder_list: []
+  edge_loss_weight: 0.1
+  graph_weight: 0.8
+  kernel_trans: "softmax"
+  nb_random_features: 30
+  rb_order: 2
+  rb_trans: "sigmoid"
+  use_act: True
+  use_edge_loss: True
+  use_gumbel: True
+
+
+model:
+  edge_decoding: dot
+  loss_fun: cross_entropy
+  type: GTModel
+optim:
+  base_lr: 0.003
+  clip_grad_norm: true
+  max_epoch: 30
+  num_warmup_epochs: 10
+  optimizer: adamW
+  scheduler: cosine_with_warmup
+  weight_decay: 3e-5
+perf:
+  mode: "off"

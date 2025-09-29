@@ -1,0 +1,59 @@
+out_dir: ./results/Graphormer/ogbn-molpcba
+metric_best: ap
+seed: 42
+dataset:
+  dir: /mnt/data2/duxin/.datasets
+  format: OGB
+  name: ogbg-molpcba
+  task: graph
+  task_type: classification
+  task_entity: item
+  transductive: False
+  node_encoder_num_types: 4609
+  edge_encoder_num_types: 1537
+num_threads: 24
+num_workers: 8
+train:
+  mode: custom
+  sampler: full_batch
+  iter_per_epoch: -1
+  batch_size: 64
+  eval_period: 4
+  ckpt_period: 100
+  tqdm: True
+  persistent_workers: True
+  pin_memory: True
+val:
+  sampler: full_batch
+  iter_per_epoch: -1
+  tqdm: True
+model:
+  type: Graphormer
+  loss_fun: cross_entropy
+optim:
+  batch_accumulation: 1
+  clip_grad_norm: True
+  optimizer: adamW
+  weight_decay: 0.0
+  base_lr: 3e-4
+  #lr_end: 1e-9
+  max_epoch: 11
+  scheduler: polynomial_with_warmup
+  num_warmup_epochs: 1
+gt:
+  layer_type: Graphormer_Layer
+  attn_type: TorchFullAttention
+  layers: 18
+  dim_hidden: 1024
+  dropout: 0.1    
+  attn_dropout: 0.3
+  ffn_dim: 1024
+  attn_heads: 8
+
+  input_dropout: 0.0
+  
+posenc_GraphormerBias: 
+  num_in_degrees: 5
+  num_out_degrees: 5
+  node_degrees_only: False
+

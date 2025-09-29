@@ -1,0 +1,410 @@
+out_dir: ./results/test/
+metric_agg: argmax
+metric_best: accuracy
+num_threads: 6
+num_workers: 8
+round: 5
+run_multiple_splits: []
+seed: 0
+dataset:
+  encoder: true
+  encoder_bn: true
+  format: OGB
+  name: ogbn-arxiv
+
+  task: node
+  task_entity: ''
+  task_type: classification
+  to_undirected: false
+  transductive: false
+  transform: none
+  tu_simple: true
+  undirected: false
+  
+  preprocess: Expand
+  heteroProcess: false
+  add_edge_index: true
+  add_self_loops: true
+  edge_dim: 128
+  edge_train_mode: all
+  exp_algorithm: Random-d
+  exp_count: 1
+  exp_deg: 3
+  exp_max_num_iters: 100
+  use_exp_edges: true
+  hop: 3
+  
+  node_encoder_num_types: 0
+  edge_encoder_num_types: 0
+  num_virt_node: 0
+
+  rand_split: false
+  resample_negative: false
+  split:
+  - 0.8
+  - 0.1
+  - 0.1
+  split_dir: ./splits
+  split_index: 0
+  split_mode: standard
+train:
+  ans_weight_update: 10000
+  auto_resume: false
+  batch_size: 1
+  ckpt_best: false
+  ckpt_clean: true
+  ckpt_period: 100
+  enable_ckpt: false
+  epoch_resume: -1
+  eval_period: 5
+  iter_per_epoch: -1
+  neighbor_sizes: [25,10]
+  neighbor_sizes_dict: ''
+  node_per_graph: 32
+  num_parts: 10
+  persistent_workers: false
+  pin_memory: false
+  radius: extend
+  sample_node: false
+  sampler: full_batch
+  skip_train_eval: false
+  tqdm: false
+  walk_length: 4
+val:
+  iter_per_epoch: 0
+  node_per_graph: 32
+  radius: extend
+  sample_node: false
+  sampler: full_batch
+  tqdm: false
+mask:
+  name: full
+  use_flex: false
+  flex_block_size: 64
+model:
+  edge_decoding: dot
+  graph_pooling: add
+  loss_fun: cross_entropy
+  loss_fun_weight: []
+  match_upper: true
+  size_average: mean
+  thresh: 0.5
+  type: GTModel
+gnn:
+  K: 10
+  act: relu
+  agg: add
+  alpha: 0.1
+  attn_dropout: 0.0
+  attn_final_linear: false
+  attn_final_linear_bn: false
+  attn_heads: 1
+  batch_norm: true
+  batchnorm: false
+  clear_feature: true
+  dim_inner: 80
+  dropout: 0.3
+  flow: source_to_target
+  head: node
+  hops: 7
+  input_dropout: 0.0
+  jumping_knowledge: false
+  keep_edge: 0.5
+  l2norm: true
+  layer_norm: false
+  layer_type: GCN
+  layers_mp: 2
+  layers_post_mp: 1
+  layers_pre_mp: 0
+  mode: GPS
+  msg_direction: single
+  normalize_adj: false
+  output_l2_norm: false
+  residual: true
+  self_msg: concat
+  skip_every: 1
+  stage_type: stack
+  use_linear: false
+gt:
+  node_encoder_list: []
+  edge_encoder_list: []
+  encoder_type: cascade
+
+  act: relu
+  activation_dropout: 0.0
+  attn_dropout: 0.06558662646658918
+  attn_heads: 4
+  attn_type: MPAttention
+
+  batch_norm: true
+  dim_hidden: 256
+  dropout: 0.046069084564482304
+  
+  ffn_dim: 128
+  full_graph: true
+  gamma: 1.0e-05
+  graph_weight: 0.8
+  head: inductive_node
+  input_dropout: 0.0
+  kernel_trans: softmax
+  l2_norm: false
+  layer_norm: false
+  layer_type: Transformer
+  layers: 3
+  layers_post_gt: 1
+  nb_gumbel_sample: 10
+  nb_random_features: 30
+
+  pna_degrees: []
+  prepend_norm: true
+  projection_matrix_type: a
+  rb_order: 1
+  rb_trans: sigmoid
+  residual: true
+  tau: 1.0
+  use_act: true
+  use_edge_loss: true
+  use_flex: false
+  use_gumbel: true
+  use_jk: false
+  virtual_nodes: 0
+optim:
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  base_lr: 0.0006336016470400666
+  batch_accumulation: 1
+  clip_grad_norm: true
+  clip_grad_norm_value: 0.3011383893136613
+  end_lr: 1.0e-09
+  lr_decay: 0.1
+  max_epoch: 600
+  min_lr: 0.0
+  momentum: 0.9
+  num_warmup_epochs: 5
+  optimizer: adamW
+  power: 1.0
+  reduce_factor: 0.1
+  schedule_patience: 10
+  scheduler: cosine_with_warmup
+  steps:
+  - 30
+  - 60
+  - 90
+  total_num_updates: 200000000
+  warmup_updates: 500
+  weight_decay: 3.833586107801094e-05
+perf:
+  logdir: ./results/test/arxiv-Exphormer-optuna_35/perf
+  mode: 'off'
+  module_topk_per_window: 20
+  op_exclusive: true
+  profile_memory: true
+  use_cuda_events: false
+  with_modules: true
+  with_stack: true
+posenc_ElstaticSE:
+  dim_pe: 16
+  enable: false
+  kernel:
+    times: []
+    times_func: range(10)
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_EquivStableLapPE:
+  eigen:
+    eigvec_norm: L2
+    laplacian_norm: sym
+    max_freqs: 10
+  enable: false
+  raw_norm_type: none
+posenc_GraphormerBias:
+  dim_pe: 16
+  enable: false
+  enable_path_bias: true
+  layers: 3
+  model: none
+  multi_hop_max_dist: 5
+  n_heads: 4
+  node_degrees_only: false
+  num_in_degrees: 20
+  num_out_degrees: 20
+  num_spatial_types: 0
+  pass_as_var: false
+  path_edge_feat_dim: 4
+  post_layers: 0
+  raw_norm_type: none
+  use_graph_token: true
+posenc_HKdiagSE:
+  dim_pe: 16
+  enable: false
+  kernel:
+    times: []
+    times_func: ''
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_Hetero_ComplEx:
+  dim_pe: 16
+  enable: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_Hetero_DistMult:
+  dim_pe: 16
+  enable: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_Hetero_GNN:
+  act: relu
+  agg: mean
+  attn_dropout: 0.0
+  batch_norm: false
+  dim_pe: 16
+  dropout: 0.0
+  enable: false
+  input_dropout: 0.0
+  layer_norm: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  pre_layers: 0
+  raw_norm_type: none
+posenc_Hetero_Label:
+  dim_pe: 16
+  enable: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_Hetero_Metapath:
+  dim_pe: 16
+  enable: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_Hetero_Node2Vec:
+  dim_pe: 16
+  enable: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_Hetero_RWSE:
+  dim_pe: 16
+  enable: false
+  kernel:
+    times: []
+    times_func: ''
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_Hetero_SDAB:
+  dim_pe: 0
+  enable: false
+  enable_path: false
+  node_degrees_only: false
+  num_spatial_types: 0
+posenc_Hetero_SDPE:
+  dim_pe: 0
+  enable: false
+  num_spatial_types: 0
+posenc_Hetero_TransE:
+  dim_pe: 16
+  enable: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_Hetero_kHopAB:
+  dim_pe: 0
+  enable: false
+  num_spatial_types: 0
+posenc_Hetero_kHopAug:
+  dim_pe: 0
+  enable: false
+  num_spatial_types: 0
+posenc_Homo_GNN:
+  act: relu
+  agg: mean
+  attn_dropout: 0.0
+  batch_norm: false
+  dim_pe: 16
+  dropout: 0.0
+  enable: false
+  input_dropout: 0.0
+  layer_norm: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  pre_layers: 0
+  raw_norm_type: none
+posenc_LapPE:
+  dim_pe: 16
+  eigen:
+    eigvec_norm: L2
+    laplacian_norm: sym
+    max_freqs: 10
+  enable: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_RWSE:
+  dim_pe: 16
+  enable: false
+  kernel:
+    times: []
+    times_func: ''
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  post_layers: 0
+  raw_norm_type: none
+posenc_SignNet:
+  dim_pe: 16
+  eigen:
+    eigvec_norm: L2
+    laplacian_norm: sym
+    max_freqs: 10
+  enable: false
+  layers: 3
+  model: none
+  n_heads: 4
+  pass_as_var: false
+  phi_hidden_dim: 64
+  phi_out_dim: 4
+  post_layers: 0
+  raw_norm_type: none

@@ -1,0 +1,69 @@
+out_dir: ./results/arxiv/
+metric_agg: argmax
+metric_best: accuracy
+num_workers: 8
+dataset:
+  dir: /mnt/data2/duxin/.datasets
+  format: OGB
+  name: ogbn-arxiv
+  split_mode: standard
+  task: node
+  task_type: classification
+  transductive: false
+  preprocess: Expand
+  exp_algorithm: Random-d
+  exp_count: 1
+  exp_deg: 3
+  exp_max_num_iters: 100
+  num_virt_node: 0
+  add_self_loops: True
+train:
+  enable_ckpt: false
+  eval_period: 5
+  mode: custom
+  batch_size: 1
+  sampler: full_batch
+  ckpt_period: 100
+gnn:
+  mode: GPS
+  layer_type: GCN
+  act: relu
+  agg: add
+  batch_norm: true
+  dim_inner: 80
+  dropout: 0.3
+  layers_post_mp: 1
+  layers_pre_mp: 1
+  normalize_adj: false
+
+gt:
+  attn_dropout: 0.167
+  batch_norm: true
+  dim_hidden: 128
+  dropout: 0.0612
+  layer_norm: false
+  layer_type: Transformer
+  attn_type: MPAttention
+  layers: 2
+  attn_heads: 8
+  ffn_dim: 80
+  head: inductive_node
+  encoder_type : cascade
+  node_encoder_list: [RawEncoder]
+  edge_encoder_list: [DummyEdge,Edgefixer]
+
+model:
+  edge_decoding: dot
+  loss_fun: cross_entropy
+  type: GTModel
+optim:
+  base_lr: 0.00078
+  clip_grad_norm: true
+  max_epoch: 600
+  num_warmup_epochs: 5
+  optimizer: adamW
+  clip_grad_norm_value: 0.329
+  scheduler: cosine_with_warmup
+  weight_decay: 1e-4
+perf:
+  mode: "full"
