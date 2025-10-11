@@ -71,7 +71,7 @@ def _safe_float(x) -> Optional[float]:
 def parse_search_args():
     gg_args = gg_parse_args()
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--n-trials", type=int, default=36)
+    parser.add_argument("--n-trials", type=int, default=12)
     parser.add_argument("--study-name", type=str, default="gt_optuna_search")
     parser.add_argument("--param-limit", type=int, default=20000000,
                         help="Max number of model params allowed, -1 means no limit")
@@ -91,7 +91,7 @@ def _set_search_params(trial: optuna.trial.Trial) -> Dict[str, Any]:
     hp["gt.dropout"] = trial.suggest_float("gt.dropout", 0.0, 0.6)
     hp["gt.attn_dropout"] = trial.suggest_float("gt.attn_dropout", 0.0, 0.8)
     hp["optim.clip_grad_norm_value"] = trial.suggest_float("optim.clip_grad_norm_value", 0.2, 1.0)
-    hp["gnn.layers_pre_mp"] = trial.suggest_int("gnn.layers_pre_mp", 0, 1)
+    # hp["gnn.layers_pre_mp"] = trial.suggest_int("gnn.layers_pre_mp", 0, 1)
     return hp
 
 

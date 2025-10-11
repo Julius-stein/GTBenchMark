@@ -288,6 +288,8 @@ def set_dataset_info(dataset):
         else:
             cfg.share.targetsize = -1
     #!Graphormer记录度数
+    if cfg.train.sampler == "neighbor":
+        cfg.share.targetsize = -1
     
     try:
         data = dataset.data

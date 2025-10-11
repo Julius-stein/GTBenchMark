@@ -41,7 +41,7 @@ from GTBenchmark.transform.dist_transforms import (add_dist_features, add_revers
                                                  add_self_loops, effective_resistances, 
                                                  effective_resistance_embedding,
                                                  effective_resistances_from_embedding)
-
+from GTBenchmark.transform.graph_partition import GraphPartitionTransform
 
 from torch_geometric.datasets import (Actor, GNNBenchmarkDataset, Planetoid,
                                       TUDataset, WebKB, WikipediaNetwork, ZINC)
@@ -449,6 +449,24 @@ def load_dataset_master(format, name, dataset_dir):
                                         cfg = cfg),
                                 show_progress=True
                                 )
+        elapsed = time.perf_counter() - start
+        timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+                  + f'{elapsed:.2f}'[-3:]
+        logging.info(f"Done! Took {timestr}")
+    
+    if cfg.metis.patches > 0:
+        start = time.perf_counter()
+        logging.info(f"Precomputing graph partition transform ...")
+
+        pre_transform_in_memory(dataset, GraphPartitionTransform(n_patches=cfg.metis.patches,
+                                                                 metis=cfg.metis.enable,
+                                                                 drop_rate=cfg.metis.drop_rate,
+                                                                 num_hops=cfg.metis.num_hops,
+                                                                 is_directed=False,
+                                                                 patch_rw_dim=cfg.metis.patch_rw_dim,
+                                                                 patch_num_diff=cfg.metis.patch_num_diff),
+                                show_progress=True)
+        
         elapsed = time.perf_counter() - start
         timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
                   + f'{elapsed:.2f}'[-3:]

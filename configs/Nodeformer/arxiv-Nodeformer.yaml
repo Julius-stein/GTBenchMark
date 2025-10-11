@@ -1,6 +1,9 @@
 out_dir: ./results/test
 metric_agg: argmax
 metric_best: accuracy
+num_workers: 8
+seed: 0
+
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: OGB
@@ -8,44 +11,59 @@ dataset:
   split_mode: standard
   task: node
   task_type: classification
-  transductive: true
+  task_entity: item
+  transductive: false
+  add_self_loops: True
   num_virt_node: 0
   rb_order: 2
+
 train:
   enable_ckpt: false
   eval_period: 5
   mode: custom
-  batch_size: 1
-  sampler: full_batch
-  ckpt_period: 100
+  batch_size: 128
+  tqdm: True
+  sampler: neighbor
+  persistent_workers: True
+  pin_memory: True
+  neighbor_sizes: [25,10]
+
+val:
+  sampler: neighbor
+  iter_per_epoch: -1
+  tqdm: True
+
+model:
+  type: GTModel
+  loss_fun: cross_entropy
+
 gnn:
   mode: "off"
-  layer_type: GCN
+  dropout: 0.3
   act: relu
-  agg: add
   batch_norm: true
   dim_inner: 80
-  dropout: 0.3
-  layers_post_mp: 1
   layers_pre_mp: 1
+  layers_post_mp: 1
   normalize_adj: false
 
 gt:
-  attn_dropout: 0.5
-  batch_norm: true
-  dim_hidden: 80
-  dropout: 0.3
+  attn_dropout: 0.167
+  batch_norm: false
+  dim_hidden: 128
+  dropout: 0.612
   layer_norm: false
   layer_type: NodeFormerConv
   attn_type: LinearAttn
-  layers: 4
-  attn_heads: 2
-  ffn_dim: 160
+  layers: 2
+  attn_heads: 8
+  ffn_dim: 80
   head: inductive_node
-  encoder_type : cascade
+  encoder_type: cascade
   node_encoder_list: []
   edge_encoder_list: [DummyEdge]
 
+  # === NodeFormer-specific ===
   edge_loss_weight: 0.1
   graph_weight: 0.8
   kernel_trans: "softmax"
@@ -56,17 +74,15 @@ gt:
   use_edge_loss: True
   use_gumbel: True
 
-model:
-  edge_decoding: dot
-  loss_fun: cross_entropy
-  type: GTModel
 optim:
   base_lr: 0.003
   clip_grad_norm: true
-  max_epoch: 400
+  clip_grad_norm_value: 0.329
+  max_epoch: 600
   num_warmup_epochs: 5
   optimizer: adamW
   scheduler: cosine_with_warmup
-  weight_decay: 5e-4
+  weight_decay: 1e-4
+
 perf:
   mode: "off"

@@ -96,3 +96,5 @@ def extended_cfg(cfg):
 
     
     cfg.model.loss_fun_weight = []
+
+    

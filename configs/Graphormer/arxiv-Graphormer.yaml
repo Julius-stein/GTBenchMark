@@ -1,0 +1,86 @@
+out_dir: ./results/test
+metric_agg: argmax
+metric_best: accuracy
+num_workers: 1
+seed: 0
+dataset:
+  dir: /mnt/data2/duxin/.datasets
+  format: OGB
+  name: ogbn-arxiv
+  split_mode: standard
+  task: node
+  task_type: classification
+  task_entity: item
+  transductive: false
+  add_self_loops: True
+
+posenc_GraphormerBias:
+  enable: True
+  node_degrees_only: True
+
+  # SpatialEncoder（最短路径距离，510 表示不连通） ——  
+  # node_degrees_only 为 true 时下面设置无效
+  num_spatial_types: 5
+  num_in_degrees: 64            #现在模型自动识别最多度数，设置废弃 
+  num_out_degrees: 64           #
+
+  # BiasEncoder（多跳路径上的边特征） ——  
+  enable_path_bias: True        
+  multi_hop_max_dist: 5         # 截/填 path 长度到 5 hops
+  path_edge_feat_dim: 4         # bond 特征维度（4 种键合）
+  use_graph_token: false
+
+train:
+  enable_ckpt: false
+  eval_period: 5
+  mode: custom
+  batch_size: 16
+  tqdm: True
+  sampler: neighbor
+  persistent_workers: True
+  pin_memory: True
+  neighbor_sizes: [25,10]
+val:
+  sampler: neighbor
+  iter_per_epoch: -1
+  tqdm: True
+model:
+  type: GTModel
+  loss_fun: cross_entropy
+gt:
+  attn_dropout: 0.11922231223024432
+  batch_norm: false
+  dim_hidden: 128
+  dropout: 0.05747741345615445
+  layer_norm: true
+  layer_type: Transformer
+  attn_type: GeneralAttention
+  layers: 2
+  attn_heads: 8
+  ffn_dim: 80
+  head: inductive_node
+  encoder_type : cascade
+  node_encoder_list: [RawEncoder,GraphormerBias]
+  edge_encoder_list: []
+  input_dropout: 0.1
+  activation_dropout: 0.1
+  #,GraphormerBias
+  prepend_norm: True
+  act : relu
+  # use_flex: True
+  # flex_block_size: 19
+gnn:
+  mode: "off"
+  dropout: 0.2
+optim:
+  base_lr: 0.0009588557917457037
+  clip_grad_norm: true
+  max_epoch: 600
+  num_warmup_epochs: 5
+  optimizer: adamW
+  clip_grad_norm_value: 0.4157799272483611
+  scheduler: cosine_with_warmup
+  weight_decay: 6.440860069088798e-06
+
+perf:
+  mode: "off" 

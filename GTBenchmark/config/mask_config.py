@@ -12,4 +12,13 @@ def set_cfg_mask(cfg):
 
     cfg.mask.name = "full"
     
+        # METIS partitioning
+    cfg.metis = CN()
+    cfg.metis.enable = False
+    cfg.metis.patches = 0
+    cfg.metis.num_hops = 1
+    cfg.metis.drop_rate = 0.3
+    cfg.metis.online = True
+    cfg.metis.patch_rw_dim = 0
+    cfg.metis.patch_num_diff = -1
     
