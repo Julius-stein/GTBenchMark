@@ -14,3 +14,4 @@ logdir/
 models/
 *.egg-info
 benchmarks/
+dataprocess/
