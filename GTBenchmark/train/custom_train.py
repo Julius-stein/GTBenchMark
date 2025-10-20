@@ -23,11 +23,11 @@ from GTBenchmark.utils.utils import (new_optimizer_config, new_scheduler_config)
 from GTBenchmark.utils.perf_monitorV2 import PerfMonitor
 
 STEP_SCHED_NAMES = {
-    'linear_with_warmup', 'cosine_with_warmup',
+    'linear_with_warmup',
     'polydecay_warmup_steps'
 }
 EPOCH_SCHED_NAMES = {
-    'polydecay_warmup_epoch', 'plateau', 'reduce_on_plateau','polynomial_with_warmup'
+    'polydecay_warmup_epoch', 'plateau', 'reduce_on_plateau','polynomial_with_warmup','cosine_with_warmup'
 }
 
 def check_grad(model):
