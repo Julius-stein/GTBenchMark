@@ -123,6 +123,9 @@ def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler,monitor, 
                     batch.to(torch.device(cfg.device))
                 else: # NAGphormer, HINo
                     batch = [x.to(torch.device(cfg.device)) for x in batch]
+                                # === toggle 记录全局节点访问情况 ===
+                # global global_node_toggle
+                # global_node_toggle[batch.n_id[:batch.batch_size].cpu()] = ~global_node_toggle[batch.n_id[:batch.batch_size].cpu()]
 
                 with monitor.section("forward"), monitor.profiled_step():
                     pred, true = model(batch)
@@ -195,6 +198,10 @@ def eval_epoch(logger, loader, model, split='val'):
                 batch.to(torch.device(cfg.device))
             else: # NAGphormer
                 batch = [x.to(torch.device(cfg.device)) for x in batch]
+
+            # global global_node_toggle
+            # global_node_toggle[batch.n_id[:batch.batch_size].cpu()] = ~global_node_toggle[batch.n_id[:batch.batch_size].cpu()]
+
             if cfg.gnn.head == 'inductive_edge':
                 pred, true, extra_stats = model(batch)
             else:
@@ -267,19 +274,24 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
         else:
             for i in range(1, num_splits):
                 perf[i].append(perf[i][-1])
-
+        # global global_node_toggle
+        # print((~global_node_toggle).sum(), "False entries (leakage or missing nodes)")
+        # if (~global_node_toggle).sum() == 0:
+        #     print("✅ 全True，Split 正常")
+        # else:
+        #     wrong_ids = torch.where(~global_node_toggle)[0]
+        #     print("⚠️ 有问题的节点 ID（前20）:", wrong_ids[:20].tolist())
         # val_perf = perf[1]
         # if cfg.optim.scheduler == 'reduce_on_plateau':
         #     scheduler.step(val_perf[-1]['loss'])
         # else:
         #     scheduler.step()
         val_perf = perf[1]  # 最新验证日志
-        if cfg.optim.scheduler in {'reduce_on_plateau', 'plateau'}:
-            scheduler.step(val_perf[-1]['loss'])   # 需要 metric
-        elif cfg.optim.scheduler in {'polydecay_warmup_epoch','polynomial_with_warmup'}:
-            scheduler.step()                        # 按 epoch 推进
-        else:
-            pass  # 按 step 的调度器已在 train_epoch 内推进
+        if cfg.optim.scheduler in EPOCH_SCHED_NAMES:
+            if cfg.optim.scheduler in {'reduce_on_plateau', 'plateau'}:
+                scheduler.step(val_perf[-1]['loss'])   # 需要 metric
+            else:
+                scheduler.step()                        # 按 epoch 推进
 
         full_epoch_times.append(time.perf_counter() - start_time)
         # Checkpoint with regular frequency (if enabled).

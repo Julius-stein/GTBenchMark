@@ -105,6 +105,15 @@ def even_quantile_labels(vals, nclasses, verbose=True):
 def log_loaded_dataset(dataset, format, name):
     logging.info(f"[*] Loaded dataset '{name}' from '{format}':")
     logging.info(f"  {dataset.data}")
+    try:
+        train_idx = torch.where(dataset.data['train_mask'])[0]
+        val_idx   = torch.where(dataset.data['val_mask'])[0]
+        test_idx  = torch.where(dataset.data['test_mask'])[0]
+
+        logging.info(f"train_idx len: {len(train_idx)}, val_idx len: {len(val_idx)}, test_idx len: {len(test_idx)}")
+
+    except:
+        pass
     # logging.info(f"  undirected: {dataset[0].is_undirected()}")
     logging.info(f"  num graphs: {len(dataset)}")
 
@@ -447,7 +456,7 @@ def load_dataset_master(format, name, dataset_dir):
         pre_transform_in_memory(dataset,
                                 partial(generate_multihop_adj,
                                         cfg = cfg),
-                                show_progress=True
+                                show_progress=True,side=False
                                 )
         elapsed = time.perf_counter() - start
         timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \

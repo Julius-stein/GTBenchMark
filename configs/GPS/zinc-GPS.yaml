@@ -1,7 +1,7 @@
-out_dir: ./results/test
+out_dir: ./results/zinc/
 metric_agg: argmin
 metric_best: mae
-num_workers: 16
+num_workers: 0
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: PyG-ZINC
@@ -19,37 +19,37 @@ train:
   eval_period: 5
   batch_size: 256
   mode: custom
-  tqdm: True
+  tqdm: false
   persistent_workers: True
   pin_memory: True
   sampler: full_batch
 gnn:
   mode: GPS
   layer_type: GINE
-  act: gelu
+  act: relu
   agg: mean
   batchnorm: true
-  dim_inner: 96
+  dim_inner: 64
   dropout: 0.0
-  layers_post_mp: 1
+  layers_post_mp: 3
   layers_pre_mp: 0
   normalize_adj: false
 
 gt:
   attn_dropout: 0.5
-  batch_norm: false
-  dim_hidden: 96
-  dropout: 0.5
-  layer_norm: true
+  batch_norm: true
+  dim_hidden: 128
+  dropout: 0.0
+  layer_norm: false
   layer_type: Transformer
   attn_type: GeneralAttention
   layers: 12
   attn_heads: 8
-  ffn_dim: 96
-  act : gelu
-  head: reg_graph
-  # encoder_type : concat
-  node_encoder_list: ['TypeDictNode','LapPE']
+  ffn_dim: 128
+  act : relu
+  head: san_graph
+  # encoder_type : cascade
+  node_encoder_list: ['TypeDictNode','RWSE']
   edge_encoder_list: ['TypeDictEdge']
 
 model:
@@ -57,14 +57,14 @@ model:
   loss_fun: l1
   type: GTModel
 optim:
-  base_lr: 0.0004
+  base_lr: 0.001
   clip_grad_norm: true
   max_epoch: 2000
-  num_warmup_epochs: 100
+  num_warmup_epochs: 50
   optimizer: adamW
   scheduler: cosine_with_warmup
-  clip_grad_norm_value: 0.5
-  weight_decay: 6e-4
+  clip_grad_norm_value: 1.0
+  weight_decay: 1e-5
 posenc_GraphormerBias:
   enable: false
   node_degrees_only: true
@@ -76,10 +76,17 @@ posenc_LapPE:
     eigvec_norm: L2
     laplacian_norm: none
     max_freqs: 8
-  enable: true
+  enable: false
   layers: 2
   model: DeepSet
   # n_heads: 4
   raw_norm_type: none
+posenc_RWSE:
+  dim_pe: 28
+  enable: True
+  kernel:
+    times_func: range(1,21)
+  model: linear
+  raw_norm_type: BatchNorm
 perf:
-  mode: "off"
+  mode: "full"

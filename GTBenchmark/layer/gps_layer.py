@@ -131,12 +131,13 @@ class GPSLayer(nn.Module):
         # Global attention transformer-style model.
         if global_model_type == 'None':
             self.self_attn = None
-        elif global_model_type in ['Transformer', 'BiasedTransformer']:
+        elif global_model_type in ['Transformer', 'BiasedTransformer','Exphormer']:
             # self.self_attn = torch.nn.MultiheadAttention(
             #     dim_h, self.num_heads, dropout=self.attn_dropout, batch_first=True)
             self.self_attn = register.layer_dict[cfg.gt.attn_type](
             dim_h, self.num_heads, cfg.gt.attn_dropout,return_attn_weights = self.log_attn_weights
         )
+        
             # self.global_model = torch.nn.TransformerEncoderLayer(
             #     d_model=dim_h, nhead=num_heads,
             #     dim_feedforward=2048, dropout=0.1, activation=F.relu,
@@ -229,19 +230,23 @@ class GPSLayer(nn.Module):
 
         # Multi-head attention.
         if self.self_attn is not None:
-            dense_batch,mask = TransGene(batch)
-            if self.global_model_type == 'Transformer':
-                batch_attn = self._sa_block(dense_batch,mask)
-                batch_attn = TransGene.from_dense_batch(batch_attn)
-            elif self.global_model_type == 'BiasedTransformer':
-                # Use Graphormer-like conditioning, requires `batch.attn_bias`.
-                h_attn = self._sa_block(dense_batch, batch.attn_bias, ~mask)[mask]
-            elif self.global_model_type == 'Performer':
-                h_attn = self.self_attn(dense_batch, mask=mask)[mask]
-            elif self.global_model_type == 'BigBird':
-                h_attn = self.self_attn(dense_batch, attention_mask=mask)
+            if self.global_model_type == 'Exphormer':
+                batch_attn = self._sa_block(batch,None)
             else:
-                raise RuntimeError(f"Unexpected {self.global_model_type}")
+                dense_batch,mask = TransGene(batch)
+                if self.global_model_type == 'Transformer':
+
+                    batch_attn = self._sa_block(dense_batch,mask)
+                    batch_attn = TransGene.from_dense_batch(batch_attn)
+                elif self.global_model_type == 'BiasedTransformer':
+                    # Use Graphormer-like conditioning, requires `batch.attn_bias`.
+                    h_attn = self._sa_block(dense_batch, batch.attn_bias, ~mask)[mask]
+                elif self.global_model_type == 'Performer':
+                    h_attn = self.self_attn(dense_batch, mask=mask)[mask]
+                elif self.global_model_type == 'BigBird':
+                    h_attn = self.self_attn(dense_batch, attention_mask=mask)
+                else:
+                    raise RuntimeError(f"Unexpected {self.global_model_type}")
             h_attn = batch_attn.x
             h_attn = self.dropout_attn(h_attn)
             h_attn = h_in1 + h_attn  # Residual connection.

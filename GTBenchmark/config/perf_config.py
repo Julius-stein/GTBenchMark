@@ -6,7 +6,7 @@ from yacs.config import CfgNode as CN
 @register_config("perf")
 def set_cfg_perf(cfg):
     cfg.perf = CN()
-    cfg.perf.logdir = ""
+    cfg.perf.logdir = "" #勿动！
 
     # 模式：off | light | e2e | modules | op-only | full
     cfg.perf.mode = "light"
@@ -29,7 +29,7 @@ def set_cfg_perf(cfg):
 
     # 模块计时
     cfg.perf.enable_module_timer= False   # light/e2e 默认 False，modules/full 默认 True
-    cfg.perf.use_cuda_events= False
+    cfg.perf.use_cuda_events= True
     cfg.perf.include_modules= None
     cfg.perf.exclude_modules= None
     cfg.perf.module_topk_per_window= 20

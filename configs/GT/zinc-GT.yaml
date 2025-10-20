@@ -2,23 +2,18 @@ out_dir: ./results/zinc/
 metric_agg: argmin
 metric_best: mae
 num_workers: 0
-
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: PyG-ZINC
   name: subset
+  node_encoder: true
+  node_encoder_bn: false
   split_mode: standard
   node_encoder_num_types: 28
   edge_encoder_num_types: 4
   task: graph
   task_type: regression
   transductive: false
-  preprocess: Expand
-  exp_algorithm: Random-d
-  exp_count: 1
-  exp_deg: 3
-  exp_max_num_iters: 100
-  num_virt_node: 1
 train:
   enable_ckpt: false
   eval_period: 5
@@ -29,7 +24,7 @@ train:
   pin_memory: True
   sampler: full_batch
 gnn:
-  mode: GPS
+  mode: "off"
   layer_type: GINE
   act: relu
   agg: mean
@@ -41,22 +36,21 @@ gnn:
   normalize_adj: false
 
 gt:
-  attn_dropout: 0.0
-  activation_dropout: 0.0
-  batch_norm: true
+  attn_dropout: 0.5
+  batch_norm: false
   dim_hidden: 128
   dropout: 0.0
-  layer_norm: false
-  layer_type: Exphormer
-  attn_type: ExphormerAttention
+  layer_norm: True
+  layer_type: Transformer
+  attn_type: GeneralAttention
   layers: 12
   attn_heads: 8
   ffn_dim: 128
   act : relu
   head: san_graph
-  # encoder_type : concat
+  # encoder_type : cascade
   node_encoder_list: ['TypeDictNode']
-  edge_encoder_list: ['TypeDictEdge','Edgefixer']
+  edge_encoder_list: ['TypeDictEdge']
 
 model:
   edge_decoding: dot
@@ -71,22 +65,28 @@ optim:
   scheduler: cosine_with_warmup
   clip_grad_norm_value: 1.0
   weight_decay: 1e-5
-out_dir: results
 posenc_GraphormerBias:
   enable: false
   node_degrees_only: true
   num_spatial_types: 20
   use_graph_token: false
 posenc_LapPE:
-  dim_pe: 4
+  dim_pe: 8
   eigen:
     eigvec_norm: L2
     laplacian_norm: none
-    max_freqs: 4
+    max_freqs: 8
   enable: false
   layers: 2
   model: DeepSet
-  n_heads: 4
+  # n_heads: 4
   raw_norm_type: none
+posenc_RWSE:
+  dim_pe: 28
+  enable: false
+  kernel:
+    times_func: range(1,21)
+  model: linear
+  raw_norm_type: BatchNorm
 perf:
   mode: "full"

@@ -135,7 +135,7 @@ def get_HNeighborLoader(dataset, batch_size, shuffle=True, split='train'):
     
     return loader_train
 
-@register_sampler('neighbor')
+@register_sampler('neighbor_random')
 def get_NeighborLoader(dataset, batch_size, shuffle=True, split='train'):
     r"""
     A homogeneous graph sampler that performs neighbor sampling as introduced
@@ -165,6 +165,8 @@ def get_NeighborLoader(dataset, batch_size, shuffle=True, split='train'):
 
     data = dataset[0]
     sample_sizes = cfg.train.neighbor_sizes
+    # if split != 'train':
+    #     sample_sizes = [-1 for _ in cfg.train.neighbor_sizes]
     def reorder_by_seeds(batch):
         r'''
         reorder sampled graph by seed nodes
@@ -208,8 +210,48 @@ def get_NeighborLoader(dataset, batch_size, shuffle=True, split='train'):
         )
     end = time.time()
     print(f'Data {split} loader initialization took:', round(end - start, 3), 'seconds.')
-    
     return loader_train
+
+
+@register_sampler('neighbor')
+def get_neighbor_simple(dataset, batch_size, shuffle=True, split='train'):
+    r"""
+    Clean NeighborLoader wrapper for GraphGym.
+    - Each split gets its own Data copy (no shared reference)
+    - Uses PyG's official NeighborLoader
+    - Keeps n_id ordering: the first `batch_size` are always the seed nodes
+    """
+
+    data = dataset[0]
+    sample_sizes = cfg.train.neighbor_sizes[:cfg.gnn.layers_mp]
+
+    # 根据 split 选择输入节点
+    if hasattr(data, f'{split}_mask'):
+        input_nodes = data[f'{split}_mask']
+    elif hasattr(data, f'{split}_idx'):
+        input_nodes = data[f'{split}_idx']
+    else:
+        raise KeyError(f"Data has no {split}_mask or {split}_idx")
+    start = time.time()
+    loader = NeighborLoader(
+        data,
+        num_neighbors=sample_sizes,
+        input_nodes=input_nodes,
+        batch_size=batch_size,
+        shuffle=(split == 'train' and shuffle),
+        num_workers=cfg.num_workers,
+        pin_memory=True,
+        persistent_workers=False,
+        disjoint=False,  
+    )
+    end = time.time()
+    print(f'Data {split} loader initialization took:', round(end - start, 3), 'seconds.')
+    print(f"[NeighborLoader] Split={split}, "
+          f"num_batches={len(loader)}, "
+          f"sample_sizes={sample_sizes}")
+    return loader
+
+
 class AdjRowLoader():
     def __init__(self, data, idx, num_parts=100, full_epoch=False):
         """

@@ -27,18 +27,12 @@ from GTBenchmark.graphgym.config import cfg as _CFG
 import torch
 from torch import nn
 from torch.profiler import profile, schedule, ProfilerActivity, tensorboard_trace_handler
+from torch.utils.tensorboard.writer import SummaryWriter as _TBWriter
 
-# ---------------- TensorBoard（惰性） ----------------
-try:
-    from torch.utils.tensorboard.writer import SummaryWriter as _TBWriter
-    _HAS_TB = True
-except Exception:
-    _TBWriter = None
-    _HAS_TB = False
 
 
 # =========================
-# 小工具
+# off调用
 # =========================
 class _NullWriter:
     def add_scalar(self, *a, **k): pass
@@ -229,23 +223,24 @@ class PerfMonitor:
 
         # ---- 配置（不新增 cfg 字段）
         self.mode = str(_g('mode', 'light')).lower()
-        self.logdir: str = str(_g('logdir', './runs/perf'))
+        baselogdir: str = str(_g('logdir', './runs/perf'))
+        timestamp = time.strftime("-%Y%m%d-%H%M%S")
+        self.logdir = baselogdir+timestamp
         self.rank_zero_only: bool = bool(_g('rank_zero_only', True))
 
-        self.enable_tensorboard: bool = bool(_g('enable_tensorboard', True)) and _HAS_TB
         self.tb_flush_secs: int = int(_g('tb_flush_secs', 120))
         self.tb_max_queue: int = int(_g('tb_max_queue', 4000))
         self.tb_suffix: str = str(_g('tb_filename_suffix', ''))
         self.keep_latest_event_files: int = int(_g('keep_latest_event_files', 2))
 
-        self.scalar_every: int = int(_g('scalar_every_n_steps', 50))
+        self.scalar_every: int = int(_g('scalar_every_n_steps', 50)) #每50步
 
         # E2E
         self.e2e_every: int = int(_g('e2e_log_every_n_steps', 50))
         self.ewma_alpha: float = float(_g('ewma_alpha', 0.2))
 
         # 模块计时
-        self.use_cuda_events: bool = bool(_g('use_cuda_events', False))
+        self.use_cuda_events: bool = bool(_g('use_cuda_events', True))
         self.include_modules = _g('include_modules', None)
         self.exclude_modules = _g('exclude_modules', None)
         self.topk_modules: int = int(_g('module_topk_per_window', 20))
@@ -260,7 +255,6 @@ class PerfMonitor:
         self.with_modules: bool = bool(_g('with_modules', False))
 
         # CSV
-        self.enable_csv: bool = bool(_g('enable_csv', True))
         self.csv_every: int = int(_g('csv_every_n_steps', 50))
         self.csv_e2e: str = str(_g('csv_filename_e2e', 'e2e.csv'))
         self.csv_modules: str = str(_g('csv_filename_modules', 'modules.csv'))
@@ -312,15 +306,12 @@ class PerfMonitor:
         self._writer = None
         def _get_writer():
             if self._writer is None:
-                if self.enable_tensorboard and _HAS_TB:
-                    self._writer = _TBWriter(
-                        log_dir=self.logdir,
-                        flush_secs=self.tb_flush_secs,
-                        max_queue=self.tb_max_queue,
-                        filename_suffix=self.tb_suffix,
-                    )
-                else:
-                    self._writer = _NullWriter()
+                self._writer = _TBWriter(
+                    log_dir=self.logdir,
+                    flush_secs=self.tb_flush_secs,
+                    max_queue=self.tb_max_queue,
+                    filename_suffix=self.tb_suffix,
+                )
             return self._writer
         self._get_writer: Callable[[], _TBWriter | _NullWriter] = _get_writer
 
@@ -330,6 +321,7 @@ class PerfMonitor:
         self._e2e_acc = {'total': _Welford(), 'throughput': _Welford()}
         self._e2e_ewma = {'total': _EWMA(self.ewma_alpha), 'throughput': _EWMA(self.ewma_alpha)}
         self._last_e2e_row = None
+        self.epoch_time = []
 
         # ---- E2E（epoch 汇总，写入同一 e2e.csv）
         self._epoch_active = False
@@ -353,6 +345,7 @@ class PerfMonitor:
         if self._do_op:
             acts = [ProfilerActivity.CPU]
             if torch.cuda.is_available(): acts.append(ProfilerActivity.CUDA)
+            #! Profiler settings
             prof_sched = schedule(wait=10, warmup=5, active=5, repeat=1)
             self._profiler = profile(
                 activities=acts,
@@ -364,22 +357,21 @@ class PerfMonitor:
                 with_modules=self.with_modules,
             )
             self._profiler.__enter__()
-            if _is_rank0():
-                print(f"[PerfMonitor] Torch profiler scheduled (mode={self.mode}). "
-                      f"wait=10, warmup=5, active=10, repeat=1. Trace dir: {self.logdir}")
+            print(f"[PerfMonitor] Torch profiler scheduled (mode={self.mode}). "
+                    f"wait=10, warmup=5, active=10, repeat=1. Trace dir: {self.logdir}")
 
-        # ---- CSV：惰性打开
+        # CSV：惰性打开
         self._csv_e2e = None
         self._csv_modules = None
         self._csv_opened = False
 
     # ---------------- CSV 工具 ----------------
     def _csv_open_once(self):
-        if not self.enable_csv or self._csv_opened:
+        if self._csv_opened:
             return
         os.makedirs(self.logdir, exist_ok=True)
         try:
-            self._csv_e2e = open(os.path.join(self.logdir, self.csv_e2e), 'a', newline='')
+            self._csv_e2e = open(os.path.join(self.logdir, self.csv_e2e), 'w', newline='')
             if self._csv_e2e.tell() == 0:
                 # 一张表：逐步 + epoch 汇总
                 csv.writer(self._csv_e2e).writerow(
@@ -389,7 +381,7 @@ class PerfMonitor:
         except Exception:
             self._csv_e2e = None
         try:
-            self._csv_modules = open(os.path.join(self.logdir, self.csv_modules), 'a', newline='')
+            self._csv_modules = open(os.path.join(self.logdir, self.csv_modules), 'w', newline='')
             if self._csv_modules.tell() == 0:
                 csv.writer(self._csv_modules).writerow(
                     ['step', 'tag', 'module', 'mean_sec', 'ci95', 'n']
@@ -410,32 +402,32 @@ class PerfMonitor:
     def epoch_end(self, tag: Optional[str]=None):
         if self._disabled or not self._epoch_active: return
         ep_tag = tag or getattr(self, "_epoch_tag", "train")
+        torch.cuda.synchronize()
         epoch_total = time.perf_counter() - self._epoch_t0
         iters = max(1, int(self._epoch_iter_count))
         avg_iter_sec = self._epoch_iter_sum_total / iters
 
         # TensorBoard
-        if self.enable_tensorboard:
-            w = self._get_writer()
-            w.add_scalar(f"{ep_tag}/epoch/total_sec", epoch_total, self.global_step)
-            w.add_scalar(f"{ep_tag}/epoch/avg_iter_sec", avg_iter_sec, self.global_step)
-
-        # CSV（合并最近一次迭代指标，不再留空）
-        if self.enable_csv:
-            self._csv_open_once()
-            if self._csv_e2e is not None and not self._csv_e2e.closed:
-                iter_cols = ['','','','']
-                if self._last_e2e_row is not None:
-                    # columns: [step, tag, total_sec, throughput, ewma_total, ewma_throughput, '', '']
-                    iter_cols = self._last_e2e_row[2:6]
-                row = [
-                    self.global_step, ep_tag,
-                    *iter_cols,
-                    f"{epoch_total:.6f}", f"{avg_iter_sec:.6f}"
-                ]
-                csv.writer(self._csv_e2e).writerow(row)
-                # 这行已经写了，避免 step() 再写一次
-                self._last_e2e_row = None
+        # 注意epoch/下的iter时间是算出来的，不是计时出来的。已停用
+        w = self._get_writer()
+        w.add_scalar(f"{ep_tag}/epoch/total_sec", epoch_total, self.global_step)
+        # w.add_scalar(f"{ep_tag}/epoch/avg_iter_sec", avg_iter_sec, self.global_step)
+        self.epoch_time.append(epoch_total)
+        # CSV（合并最近一次迭代指标）
+        self._csv_open_once()
+        if self._csv_e2e is not None and not self._csv_e2e.closed:
+            iter_cols = ['','','','']
+            if self._last_e2e_row is not None:
+                # columns: [step, tag, total_sec, throughput, ewma_total, ewma_throughput, '', '']
+                iter_cols = self._last_e2e_row[2:6]
+            row = [
+                self.global_step, ep_tag,
+                *iter_cols,
+                f"{epoch_total:.6f}", f"{avg_iter_sec:.6f}"
+            ]
+            csv.writer(self._csv_e2e).writerow(row)
+            # 这行已经写了，连带e2e一起清空，避免 step() 再写一次
+            self._last_e2e_row = None
 
         self._epoch_active = False
 
@@ -461,7 +453,7 @@ class PerfMonitor:
             if getattr(self, 'emit_nvtx', False):
                 try: torch.cuda.nvtx.range_pop()
                 except Exception: pass
-
+            torch.cuda.synchronize()
             total = time.perf_counter() - t0
             self._e2e_state = None
 
@@ -483,7 +475,7 @@ class PerfMonitor:
 
             w_step = self.global_step + 1
             # TB（节流）
-            if self.enable_tensorboard and (w_step % self.e2e_every == 0):
+            if(w_step % self.e2e_every == 0):
                 w = self._get_writer()
                 w.add_scalar(f"{tag}/iter/total_sec", total, w_step)
                 w.add_scalar(f"{tag}/iter/ewma_total_sec", ew_total, w_step)
@@ -495,10 +487,10 @@ class PerfMonitor:
                 w.add_histogram(f"{tag}/iter/total_hist", torch.tensor([total]), w_step)
 
             # CSV（逐步）：缓存行；等 step() 节流落盘
-            if self.enable_csv:
-                self._last_e2e_row = [w_step, tag,
-                                      f"{total:.6f}", f"{thr:.3f}", f"{ew_total:.6f}", f"{ew_thr:.3f}",
-                                      '', '']  # 末两列留给 epoch 汇总
+
+            self._last_e2e_row = [w_step, tag,
+                                    f"{total:.6f}", f"{thr:.3f}", f"{ew_total:.6f}", f"{ew_thr:.3f}",
+                                    '', '']  # 末两列留给 epoch 汇总
 
     @contextmanager
     def section(self, name: str):
@@ -514,6 +506,7 @@ class PerfMonitor:
             if getattr(self, 'emit_nvtx', False):
                 try: torch.cuda.nvtx.range_pop()
                 except Exception: pass
+            torch.cuda.synchronize()
             sec = time.perf_counter() - t0
             if self._e2e_state is not None:
                 secs = self._e2e_state['secs']
@@ -529,6 +522,7 @@ class PerfMonitor:
         def timing_hook(state, bucket):
             t0 = time.perf_counter(); fut = _ar(state, bucket)
             def _done(fut):
+                torch.cuda.synchronize()
                 dt = time.perf_counter() - t0
                 if self._e2e_state is not None:
                     secs = self._e2e_state['secs']
@@ -555,7 +549,7 @@ class PerfMonitor:
                 self._profiler = None
 
         # 写 E2E CSV（逐步，节流）
-        if self.enable_csv and self._last_e2e_row is not None and (self.global_step % self.csv_every == 0):
+        if  self._last_e2e_row is not None and (self.global_step % self.csv_every == 0):
             self._csv_open_once()
             if self._csv_e2e is not None and not self._csv_e2e.closed:
                 csv.writer(self._csv_e2e).writerow(self._last_e2e_row)
@@ -566,7 +560,7 @@ class PerfMonitor:
             w = self._get_writer()
             self._module_timer.dump_to_tb(w, self.global_step, tag=tag)
 
-            if self.enable_csv and self._module_timer.window:
+            if self._module_timer.window:
                 self._csv_open_once()
                 if self._csv_modules is not None and not self._csv_modules.closed:
                     items = [(n, acc.stats()[0], acc)
@@ -598,12 +592,51 @@ class PerfMonitor:
                 try: f.flush(); f.close()
                 except Exception: pass
                 finally: setattr(self, name, None)
+        # === TensorBoard 写入全局统计 ===
+        w = self._get_writer()
 
-        # 关 TB
+        # 全局平均 iteration 耗时
+        if self._e2e_acc["total"].n > 0:
+            mean_t, std_t = self._e2e_acc["total"].stats()
+            ci_t = self._e2e_acc["total"].ci95()
+            w.add_scalar("global/iter/avg_total_sec", mean_t, self.global_step)
+            w.add_scalar("global/iter/std_total_sec", std_t, self.global_step)
+            w.add_scalar("global/iter/ci95_total_sec", ci_t, self.global_step)
+            print(f"avg_iter_sec={mean_t:.6f}")
+
+        # 全局平均吞吐量
+        if self._e2e_acc["throughput"].n > 0:
+            mean_thr, std_thr = self._e2e_acc["throughput"].stats()
+            ci_thr = self._e2e_acc["throughput"].ci95()
+            w.add_scalar("global/throughput/avg_samples_per_sec", mean_thr, self.global_step)
+            w.add_scalar("global/throughput/std_samples_per_sec", std_thr, self.global_step)
+            w.add_scalar("global/throughput/ci95_samples_per_sec", ci_thr, self.global_step)
+            print(f"avg_throughput={mean_thr:.6f}")
+
+        # === 全局平均 epoch 时间 ===
+        if len(self.epoch_time) > 0:
+            avg_epoch = sum(self.epoch_time) / len(self.epoch_time)
+            var_epoch = sum((x - avg_epoch) ** 2 for x in self.epoch_time) / len(self.epoch_time)
+            std_epoch = math.sqrt(var_epoch)
+            w.add_scalar("global/epoch/avg_total_sec", avg_epoch, self.global_step)
+            w.add_scalar("global/epoch/std_total_sec", std_epoch, self.global_step)
+            if len(self.epoch_time) > 1:
+                ci95_epoch = 1.96 * std_epoch / math.sqrt(len(self.epoch_time))
+                w.add_scalar("global/epoch/ci95_total_sec", ci95_epoch, self.global_step)
+            print(f"avg_epoch_sec={avg_epoch:.6f}")
+        # === 刷新并关闭 TensorBoard ===
+        try:
+            w.flush()
+        except Exception:
+            pass
+
         if self._writer is not None and not isinstance(self._writer, _NullWriter):
-            try: self._writer.flush(); self._writer.close()
-            except Exception: pass
+            try:
+                self._writer.flush()
+                self._writer.close()
+            except Exception:
+                pass
 
         # 再清一次旧 events
-        try: _cleanup_old_events(self.logdir, self.keep_latest_event_files)
-        except Exception: pass
+        # try: _cleanup_old_events(self.logdir, self.keep_latest_event_files)
+        # except Exception: pass

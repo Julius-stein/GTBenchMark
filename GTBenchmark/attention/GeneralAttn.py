@@ -17,6 +17,8 @@ _BACKEND_MAP = {
     "math":      SDPBackend.MATH,
     "flex":      "flex",
 }
+from GTBenchmark.graphgym.register import register_layer
+
 
 
 
@@ -37,8 +39,6 @@ def _to_additive_from_full_mask(full_mask: Tensor, Np: int) -> Tensor:
     elif Np != N:
         raise RuntimeError(f"Padding mask size mismatch: full N={N}, attn N'={Np}")
     return add  # [B,1,Np,Np]
-
-from GTBenchmark.graphgym.register import register_layer
 
 @register_layer('GeneralAttention')
 class GeneralAttn(nn.Module):

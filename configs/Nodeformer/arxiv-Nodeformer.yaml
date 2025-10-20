@@ -1,7 +1,7 @@
 out_dir: ./results/test
 metric_agg: argmax
 metric_best: accuracy
-num_workers: 8
+num_workers: 0
 seed: 0
 
 dataset:
@@ -23,9 +23,9 @@ train:
   mode: custom
   batch_size: 128
   tqdm: True
-  sampler: neighbor
+  sampler: full_batch
   persistent_workers: True
-  pin_memory: True
+  pin_memory: False
   neighbor_sizes: [25,10]
 
 val:

@@ -19,8 +19,8 @@ class GTModel(torch.nn.Module):
         # ---------------- 基础 ----------------
         self.dim_h      = cfg.gt.dim_hidden
         #@!
-        self.input_drop = nn.Dropout(cfg.gt.input_dropout)
-        self.activation = register.act_dict[cfg.gt.act]
+        # self.input_drop = nn.Dropout(cfg.gt.input_dropout)
+        # self.activation = register.act_dict[cfg.gt.act]
         self.layer_norm = cfg.gt.layer_norm
         self.l2_norm    = getattr(cfg.gt, "l2_norm", False)  # 可能不存在就给缺省
         GNNHead         = register.head_dict[cfg.gt.head]

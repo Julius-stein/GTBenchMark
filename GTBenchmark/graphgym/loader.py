@@ -276,6 +276,7 @@ def set_dataset_info(dataset):
     # 直接索引 dataset[i]
     #!
     cfg.share.can_flex = False
+    cfg.share.side = False
     if len(dataset)>1:
         slices = dataset.slices["x"]   # x 的切片位置，比如 [0, 34, 67, ...]
         # 每个图的节点数就是相邻差值
@@ -291,32 +292,7 @@ def set_dataset_info(dataset):
     if cfg.train.sampler == "neighbor":
         cfg.share.targetsize = -1
     
-    try:
-        data = dataset.data
-        if not isinstance(data, HeteroData):
-            cfg.share.num_nodes = int(data.num_nodes)
-            cfg.share.num_edges = int(data.num_edges)
-
-            if hasattr(data, "edge_index"):
-                row, col = data.edge_index
-                indeg = torch.bincount(col, minlength=data.num_nodes)
-                outdeg = torch.bincount(row, minlength=data.num_nodes)
-                cfg.share.max_indegree = int(indeg.max().item())
-                cfg.share.max_outdegree = int(outdeg.max().item())
-            else:
-                cfg.share.max_indegree = -1
-                cfg.share.max_outdegree = -1
-        else:
-            # HeteroData 不展开细节，只给出节点/边总量
-            cfg.share.num_nodes = sum([data[nt].num_nodes for nt in data.node_types])
-            cfg.share.num_edges = sum([data[et].num_edges for et in data.edge_types])
-            cfg.share.max_indegree = -1
-            cfg.share.max_outdegree = -1
-    except Exception:
-        cfg.share.num_nodes = -1
-        cfg.share.num_edges = -1
-        cfg.share.max_indegree = -1
-        cfg.share.max_outdegree = -1
+    count_degree(dataset)
 
 # def set_dataset_info(dataset):
 #     r"""
@@ -406,6 +382,68 @@ def set_dataset_info(dataset):
 
 #     if hasattr(dataset, 'dynamicTemporal'):
 #         cfg.share.num_splits = len(dataset)
+
+def count_degree(dataset):
+    try:
+        data = dataset.data
+        # ---- 异构图 ----
+        if isinstance(data, HeteroData):
+            cfg.share.num_nodes = sum([data[nt].num_nodes for nt in data.node_types])
+            cfg.share.num_edges = sum([data[et].num_edges for et in data.edge_types])
+            cfg.share.max_indegree = -1
+            cfg.share.max_outdegree = -1
+
+        # ---- 同构图 ----
+        else:
+            # 判断是“单大图”还是“小图集合”
+            if hasattr(dataset, '__len__') and len(dataset) > 1:
+                # 说明是小图集合，如 ZINC / QM9
+                if getattr(dataset.data, "in_degree", None) is not None:
+                    # 已经在预处理阶段计算好度数（直接取最大值）
+                    cfg.share.num_nodes = int(data.num_nodes)
+                    cfg.share.num_edges = int(data.num_edges)
+                    cfg.share.max_indegree = int(data.in_degree.max().item())
+                    cfg.share.max_outdegree = int(data.out_degree.max().item())
+                else:
+                    # 没有预计算度数，则逐图计算
+                    max_in, max_out = 0, 0
+                    total_nodes, total_edges = 0, 0
+                    for d in dataset:
+                        if hasattr(d, 'edge_index'):
+                            row, col = d.edge_index
+                            indeg = torch.bincount(col, minlength=d.num_nodes)
+                            outdeg = torch.bincount(row, minlength=d.num_nodes)
+                            max_in = max(max_in, int(indeg.max().item()))
+                            max_out = max(max_out, int(outdeg.max().item()))
+                            total_nodes += d.num_nodes
+                            total_edges += d.num_edges
+                    cfg.share.num_nodes = int(total_nodes)
+                    cfg.share.num_edges = int(total_edges)
+                    cfg.share.max_indegree = max_in
+                    cfg.share.max_outdegree = max_out
+            else:
+                # 单图类（如 OGBN）
+                cfg.share.num_nodes = int(data.num_nodes)
+                cfg.share.num_edges = int(data.num_edges)
+
+                if hasattr(data, "edge_index"):
+                    row, col = data.edge_index
+                    indeg = torch.bincount(col, minlength=data.num_nodes)
+                    outdeg = torch.bincount(row, minlength=data.num_nodes)
+                    cfg.share.max_indegree = int(indeg.max().item())
+                    cfg.share.max_outdegree = int(outdeg.max().item())
+                else:
+                    cfg.share.max_indegree = -1
+                    cfg.share.max_outdegree = -1
+
+    except Exception as e:
+        print(f"[Warning] Degree stats failed: {e}")
+        cfg.share.num_nodes = -1
+        cfg.share.num_edges = -1
+        cfg.share.max_indegree = -1
+        cfg.share.max_outdegree = -1
+
+
 def _is_pow2(x: int) -> bool:
     return x > 0 and (x & (x - 1) == 0)
 
@@ -422,18 +460,14 @@ def create_dataset():
 
     return dataset
 
-from GTBenchmark.transform.slide_data import collate_with_side, attach_side, SideFieldSpec
-GRAPHORMER_SIDE_SPECS = [
-    SideFieldSpec('spatial_pos',     pad_value=0),   # 距离 0/pad
-    SideFieldSpec('attn_edge_type',  pad_value=0),   # 未连接→0
-    SideFieldSpec('edge_input',      pad_value=-1),  # 路径 pad→-1
-]
+
 def get_loader(dataset, sampler, batch_size, shuffle=True, split='train'):
     # Try to use customized graph sampler
     func = register.sampler_dict.get(sampler, None)
     if func is not None:
         return func(dataset, batch_size=batch_size, shuffle=shuffle, split=split)
-    if cfg.posenc_GraphormerBias.enable and not cfg.posenc_GraphormerBias.node_degrees_only:
+    
+    if cfg.share.side:
         from torch.utils.data import DataLoader as torch_dataloader
         from GTBenchmark.utils.side_data import global_collate
         loader_train = torch_dataloader(

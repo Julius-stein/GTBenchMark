@@ -57,7 +57,7 @@ class GraphTransformerLayer(nn.Module):
 
         # 1) Attn block (Pre-Norm)
         x_norm = self.norm1(x)
-        batch.x = x_norm               # 避免创建新 Batch，attention 内部请就地用 batch.x
+        batch.x = x_norm               
         batch = self.attention(batch, mask)
         h = self.drop_res(batch.x)
         x = x + h                      # 非原地，利于 torch.compile

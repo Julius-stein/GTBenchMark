@@ -1,4 +1,4 @@
-out_dir: ./results/Nodecora
+out_dir: ./results/Cora
 metric_agg: argmax
 metric_best: accuracy
 dataset:
@@ -60,10 +60,10 @@ model:
 optim:
   base_lr: 0.003
   clip_grad_norm: true
-  max_epoch: 30
+  max_epoch: 300
   num_warmup_epochs: 10
   optimizer: adamW
   scheduler: cosine_with_warmup
   weight_decay: 3e-5
 perf:
-  mode: "off"
+  mode: "full"

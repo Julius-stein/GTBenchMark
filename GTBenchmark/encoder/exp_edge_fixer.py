@@ -20,15 +20,15 @@ class ExpanderEdgeFixer(nn.Module):
             add_edge_index (bool): If True, adds the edge index to the batch.
             num_virt_node (int): Number of virtual nodes to add to the batch.
     '''
-    def __init__(self, add_edge_index=False, num_virt_node=0):
+    def __init__(self,dim_hidden):
         
         super().__init__()
 
         if not hasattr(cfg.gt, 'dim_edge') or cfg.gt.dim_edge is None:
             cfg.gt.dim_edge = cfg.gt.dim_hidden
-
-        self.add_edge_index = add_edge_index
-        self.num_virt_node = num_virt_node
+        
+        self.add_edge_index = cfg.dataset.add_edge_index
+        self.num_virt_node = cfg.dataset.num_virt_node
         self.exp_edge_attr = nn.Embedding(1, cfg.gt.dim_edge)
         self.use_exp_edges = cfg.dataset.use_exp_edges
 
