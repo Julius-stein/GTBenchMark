@@ -75,7 +75,7 @@ gnn:
 optim:
   base_lr: 0.0009588557917457037
   clip_grad_norm: true
-  max_epoch: 600
+  max_epoch: 60
   num_warmup_epochs: 5
   optimizer: adamW
   clip_grad_norm_value: 0.4157799272483611

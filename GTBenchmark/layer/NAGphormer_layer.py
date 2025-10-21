@@ -5,10 +5,10 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 from GTBenchmark.graphgym.register import register_layer
-from models.FFN import FeedForwardNetwork
+# from models.FFN import FeedForwardNetwork
 from GTBenchmark.graphgym.config import cfg
 import GTBenchmark.graphgym.register as register
-from models.MHA import MultiHeadAttention
+# from models.MHA import MultiHeadAttention
 @register_layer('NAGphormer_Layer')
 class NAGphormerLayer(nn.Module):
     def __init__(self, dim_h):

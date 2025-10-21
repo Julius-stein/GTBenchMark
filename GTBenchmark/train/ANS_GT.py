@@ -23,7 +23,7 @@ from torch_geometric.utils import mask_to_index, index_to_mask
 
 from utils.collator import collator, Gophormer_collator#???
 from dataprocess.ANS_GT import node_sampling, process_data#???
-from models.GT import GT#???
+# from models.GT import GT#???
 
 from GTBenchmark.graphgym.checkpoint import load_ckpt, save_ckpt, clean_ckpt
 from GTBenchmark.graphgym.config import cfg
