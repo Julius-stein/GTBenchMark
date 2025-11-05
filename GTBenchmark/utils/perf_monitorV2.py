@@ -91,57 +91,97 @@ def _cleanup_old_events(logdir: str, keep_latest: int):
 
 
 # =========================
-# 模块计时（叶子模块）
+# 模块计时
 # =========================
 class ModuleTimer:
     """
-    仅对“叶子模块”计时；支持 include/exclude/regex 过滤。
-    Top-K 输出：TB 标量 + Markdown 表 + 直方图；CSV 写在 PerfMonitor.step()。
+    模块计时器（按名称匹配而非层级深度）。
+    按照 include/exclude/regex 规则匹配模型名称，加上按照name严格匹配module类名，并在初始化时打印详细匹配信息。
     """
     def __init__(
         self,
         model: nn.Module,
         *,
         use_cuda_events: bool = False,
-        include_modules: Optional[List[str]] = None,
-        exclude_modules: Optional[List[str]] = None,
+        include_name: Optional[Iterable[str]] = [],
         include_regex: Optional[Iterable[str]] = None,
         exclude_regex: Optional[Iterable[str]] = None,
         topk_per_window: int = 20,
+        verbose: bool = True,
     ):
         self.use_cuda_events = bool(use_cuda_events and torch.cuda.is_available())
-        self.include_modules = include_modules or None
-        self.exclude_modules = exclude_modules or None
         self.include_re = [re.compile(p) for p in (include_regex or [])]
         self.exclude_re = [re.compile(p) for p in (exclude_regex or [])]
+        self.include_name = include_name
         self.topk = int(max(1, topk_per_window))
+        self.verbose = verbose
 
         self.window: Dict[str, _Welford] = {}
         self._handles: List[torch.utils.hooks.RemovableHandle] = []
-        self._register_leaf_hooks(model)
+        self._pending: List[Tuple[str, torch.cuda.Event, torch.cuda.Event]] = []  #挂起事件队列
+        self._register_hooks_verbose(model)
 
-    def _selected(self, name: str) -> bool:
-        sel = True
-        if self.include_modules is not None:
-            sel = any(s in name for s in self.include_modules)
-        if self.include_re:
-            sel = sel and any(r.search(name) for r in self.include_re)
-        if self.exclude_modules is not None and any(s in name for s in self.exclude_modules):
-            return False
-        if any(r.search(name) for r in self.exclude_re):
-            return False
-        return sel
 
-    def _register_leaf_hooks(self, model: nn.Module):
+    # ---------------- 名称匹配判断 ----------------
+    def _match_reason(self, name: str,module: nn.Module) -> Tuple[bool, str]:
+        """
+        返回: (是否选中, 匹配原因字符串)
+        """
+        cls_name = module.__class__.__name__
+        # 1. 排除规则优先
+        for r in self.exclude_re:
+            if r.search(name):
+                return False, f"{r.pattern}"
+        ##严格匹配类名
+        for r in self.include_name:
+            if r==cls_name:
+                return True,r
+        # 2. 包含规则匹配
+        for r in self.include_re:
+            if r.search(name):
+                return True, f"{r.pattern}"
+
+        # 3. 如果没有 include 规则，则默认不过滤（false）
+        if not self.include_re and not self.include_name:
+            return True, "default (no include_regex provided)"
+
+        # 4. 未命中任何规则
+        return False, "not matched"
+
+
+    # ---------------- 注册 hook 并打印匹配表 ----------------
+    def _register_hooks_verbose(self, model: nn.Module):
         if self.use_cuda_events:
             def mk_hooks(name: str):
+                # 通过Event记录事件计时module（正向和反向）
                 start_ev = torch.cuda.Event(enable_timing=True)
                 end_ev   = torch.cuda.Event(enable_timing=True)
-                def pre(_m, _i): start_ev.record()
+                # start_ev_b = torch.cuda.Event(enable_timing=True)
+                # end_ev_b   = torch.cuda.Event(enable_timing=True)
+                dev = torch.device(_CFG.device)
+
+                def pre(_m, _i):
+                    
+                    stream = torch.cuda.current_stream(dev)
+                    stream.record_event(start_ev)   # 只记录，不同步
+
                 def post(_m, _i, _o):
-                    end_ev.record(); torch.cuda.current_stream().synchronize()
-                    ms = start_ev.elapsed_time(end_ev)
-                    self._add(name, ms / 1000.0)
+                    stream = torch.cuda.current_stream(dev)
+                    stream.record_event(end_ev)     # 只记录，不同步
+                    # 把事件对暂存，等到 iteration 末尾统一读取 elapsed_time
+                    self._pending.append((f"{name}_fwd", start_ev, end_ev))
+
+                # # backward hooks（记录反向）
+                # def pre_bwd(_m, grad_input, grad_output):
+                    
+                #     stream = torch.cuda.current_stream(dev)
+                #     stream.record_event(start_ev_b) 
+
+                # def post_bwd(_m, grad_input, grad_output):
+                #     stream = torch.cuda.current_stream(dev)
+                #     stream.record_event(end_ev_b)    
+                #     self._pending.append((f"{name}_bwd", start_ev_b, end_ev_b))
+                # return pre, post, pre_bwd, post_bwd
                 return pre, post
         else:
             def mk_hooks(name: str):
@@ -152,29 +192,45 @@ class ModuleTimer:
                     self._add(name, t1 - t0)
                 return pre, post
 
-        registered = 0
+        matched, skipped = [], []
+        table_rows = []
         for n, m in model.named_modules():
-            if list(m.children()):  # 仅叶子
-                continue
             if not n:
                 continue
-            if not self._selected(n):
+
+            ok, reason = self._match_reason(n,m)
+
+            if not ok:
+                skipped.append(n)
+                table_rows.append(f"[ ] {n:<60} | {m.__class__.__name__:<20} | {reason}")
                 continue
+
             pre, post = mk_hooks(n)
             self._handles.append(m.register_forward_pre_hook(pre))
-            try:
-                self._handles.append(m.register_forward_hook(post))
-            except TypeError:
-                self._handles.append(m.register_forward_hook(lambda mod, i, o: post(mod, i, o)))
-            registered += 1
-        if _is_rank0():
-            print(f"[PerfMonitor] ModuleTimer registered {registered} leaf modules.")
+            self._handles.append(m.register_forward_hook(post))
+            # self._handles.append(m.register_full_backward_hook(lambda m, gi, go: pre_bwd(m, gi, go)))
+            # self._handles.append(m.register_full_backward_hook(lambda m, gi, go: post_bwd(m, gi, go)))
+            matched.append(n)
+            table_rows.append(f"[*] {n:<60} | {m.__class__.__name__:<20} | {reason}")
 
+        if self.verbose:
+            print(f"\n[PerfMonitor] 模块匹配结果 (共 {len(matched)} 计时 / {len(skipped)} 跳过)：")
+            print("-" * 110)
+            print("模块名称                                                     | 类型                 | 匹配规则")
+            print("-" * 110)
+            for row in table_rows:
+                print(row)
+            print("-" * 110)
+            print(f"[PerfMonitor] 已注册 {len(matched)} 个模块计时 hook\n")
+
+    # ---------------- 数据统计 ----------------
     def _add(self, name: str, sec: float):
         acc = self.window.get(name)
-        if acc is None: acc = self.window[name] = _Welford()
+        if acc is None:
+            acc = self.window[name] = _Welford()
         acc.add(float(sec))
 
+    # ---------------- 写入 TensorBoard ----------------
     def dump_to_tb(self, writer, step: int, tag: str='train'):
         if not self.window:
             return
@@ -202,6 +258,8 @@ class ModuleTimer:
             try: h.remove()
             except Exception: pass
         self._handles.clear()
+
+
 
 
 # =========================
@@ -241,8 +299,9 @@ class PerfMonitor:
 
         # 模块计时
         self.use_cuda_events: bool = bool(_g('use_cuda_events', True))
-        self.include_modules = _g('include_modules', None)
-        self.exclude_modules = _g('exclude_modules', None)
+        self.include_name = _g('include_name',[])
+        self.include_regex = _g('include_regex', [])
+        self.exclude_regex = _g('exclude_regex', [])
         self.topk_modules: int = int(_g('module_topk_per_window', 20))
         self.enable_module_timer_cfg: bool = bool(_g('enable_module_timer', False))
 
@@ -335,8 +394,9 @@ class PerfMonitor:
             self._module_timer = ModuleTimer(
                 model,
                 use_cuda_events=self.use_cuda_events,
-                include_modules=self.include_modules,
-                exclude_modules=self.exclude_modules,
+                include_name=self.include_name,
+                include_regex=self.include_regex,
+                exclude_regex=self.exclude_regex,
                 topk_per_window=self.topk_modules,
             )
 
@@ -453,8 +513,20 @@ class PerfMonitor:
             if getattr(self, 'emit_nvtx', False):
                 try: torch.cuda.nvtx.range_pop()
                 except Exception: pass
+
             torch.cuda.synchronize()
             total = time.perf_counter() - t0
+
+            # （删除 section pending event 结算部分）
+            # === ModuleTimer 的 pending 事件（GPU 真实执行时间）===
+            if (self._module_timer is not None
+                and getattr(self._module_timer, "use_cuda_events", False)
+                and hasattr(self._module_timer, "_pending")):
+                for name, s_ev, e_ev in self._module_timer._pending:
+                    ms = s_ev.elapsed_time(e_ev)   # 毫秒
+                    self._module_timer._add(name, ms / 1000.0)
+                self._module_timer._pending.clear()
+
             self._e2e_state = None
 
             # 累计（逐步）
@@ -491,26 +563,26 @@ class PerfMonitor:
             self._last_e2e_row = [w_step, tag,
                                     f"{total:.6f}", f"{thr:.3f}", f"{ew_total:.6f}", f"{ew_thr:.3f}",
                                     '', '']  # 末两列留给 epoch 汇总
-
+    
+    
     @contextmanager
     def section(self, name: str):
+        """
+        轻量 section 计时器（CPU 计时，无 GPU Event）
+        用于粗粒度阶段：data / forward / backward / opti
+        """
         if not self._do_e2e:
-            yield; return
-        if getattr(self, 'emit_nvtx', False):
-            try: torch.cuda.nvtx.range_push(f"sec:{name}")
-            except Exception: pass
+            yield
+            return
+
         t0 = time.perf_counter()
         try:
             yield
         finally:
-            if getattr(self, 'emit_nvtx', False):
-                try: torch.cuda.nvtx.range_pop()
-                except Exception: pass
-            torch.cuda.synchronize()
-            sec = time.perf_counter() - t0
+            dt = time.perf_counter() - t0
             if self._e2e_state is not None:
-                secs = self._e2e_state['secs']
-                secs[name] = secs.get(name, 0.0) + sec
+                secs = self._e2e_state["secs"]
+                secs[name] = secs.get(name, 0.0) + dt
 
     # ----------------（可选）DDP 通信计时 ----------------
     def attach_ddp_comm_timing(self, ddp_model: torch.nn.parallel.DistributedDataParallel):
@@ -593,49 +665,53 @@ class PerfMonitor:
                 except Exception: pass
                 finally: setattr(self, name, None)
         # === TensorBoard 写入全局统计 ===
-        w = self._get_writer()
-
-        # 全局平均 iteration 耗时
-        if self._e2e_acc["total"].n > 0:
-            mean_t, std_t = self._e2e_acc["total"].stats()
-            ci_t = self._e2e_acc["total"].ci95()
-            w.add_scalar("global/iter/avg_total_sec", mean_t, self.global_step)
-            w.add_scalar("global/iter/std_total_sec", std_t, self.global_step)
-            w.add_scalar("global/iter/ci95_total_sec", ci_t, self.global_step)
-            print(f"avg_iter_sec={mean_t:.6f}")
-
-        # 全局平均吞吐量
-        if self._e2e_acc["throughput"].n > 0:
-            mean_thr, std_thr = self._e2e_acc["throughput"].stats()
-            ci_thr = self._e2e_acc["throughput"].ci95()
-            w.add_scalar("global/throughput/avg_samples_per_sec", mean_thr, self.global_step)
-            w.add_scalar("global/throughput/std_samples_per_sec", std_thr, self.global_step)
-            w.add_scalar("global/throughput/ci95_samples_per_sec", ci_thr, self.global_step)
-            print(f"avg_throughput={mean_thr:.6f}")
-
-        # === 全局平均 epoch 时间 ===
-        if len(self.epoch_time) > 0:
-            avg_epoch = sum(self.epoch_time) / len(self.epoch_time)
-            var_epoch = sum((x - avg_epoch) ** 2 for x in self.epoch_time) / len(self.epoch_time)
-            std_epoch = math.sqrt(var_epoch)
-            w.add_scalar("global/epoch/avg_total_sec", avg_epoch, self.global_step)
-            w.add_scalar("global/epoch/std_total_sec", std_epoch, self.global_step)
-            if len(self.epoch_time) > 1:
-                ci95_epoch = 1.96 * std_epoch / math.sqrt(len(self.epoch_time))
-                w.add_scalar("global/epoch/ci95_total_sec", ci95_epoch, self.global_step)
-            print(f"avg_epoch_sec={avg_epoch:.6f}")
-        # === 刷新并关闭 TensorBoard ===
-        try:
-            w.flush()
-        except Exception:
-            pass
-
-        if self._writer is not None and not isinstance(self._writer, _NullWriter):
+        if self._writer is not None:
             try:
-                self._writer.flush()
-                self._writer.close()
-            except Exception:
-                pass
+                w = self._get_writer()
+            except Exception: return
+
+            if w is not None:
+            # 全局平均 iteration 耗时
+                if self._e2e_acc["total"].n > 0:
+                    mean_t, std_t = self._e2e_acc["total"].stats()
+                    ci_t = self._e2e_acc["total"].ci95()
+                    w.add_scalar("global/iter/avg_total_sec", mean_t, self.global_step)
+                    w.add_scalar("global/iter/std_total_sec", std_t, self.global_step)
+                    w.add_scalar("global/iter/ci95_total_sec", ci_t, self.global_step)
+                    print(f"avg_iter_sec={mean_t:.6f}")
+
+                # 全局平均吞吐量
+                if self._e2e_acc["throughput"].n > 0:
+                    mean_thr, std_thr = self._e2e_acc["throughput"].stats()
+                    ci_thr = self._e2e_acc["throughput"].ci95()
+                    w.add_scalar("global/throughput/avg_samples_per_sec", mean_thr, self.global_step)
+                    w.add_scalar("global/throughput/std_samples_per_sec", std_thr, self.global_step)
+                    w.add_scalar("global/throughput/ci95_samples_per_sec", ci_thr, self.global_step)
+                    print(f"avg_throughput={mean_thr:.6f}")
+
+                # === 全局平均 epoch 时间 ===
+                if len(self.epoch_time) > 0:
+                    avg_epoch = sum(self.epoch_time) / len(self.epoch_time)
+                    var_epoch = sum((x - avg_epoch) ** 2 for x in self.epoch_time) / len(self.epoch_time)
+                    std_epoch = math.sqrt(var_epoch)
+                    w.add_scalar("global/epoch/avg_total_sec", avg_epoch, self.global_step)
+                    w.add_scalar("global/epoch/std_total_sec", std_epoch, self.global_step)
+                    if len(self.epoch_time) > 1:
+                        ci95_epoch = 1.96 * std_epoch / math.sqrt(len(self.epoch_time))
+                        w.add_scalar("global/epoch/ci95_total_sec", ci95_epoch, self.global_step)
+                    print(f"avg_epoch_sec={avg_epoch:.6f}")
+                # === 刷新并关闭 TensorBoard ===
+                try:
+                    w.flush()
+                except Exception:
+                    pass
+
+                if self._writer is not None and not isinstance(self._writer, _NullWriter):
+                    try:
+                        self._writer.flush()
+                        self._writer.close()
+                    except Exception:
+                        pass
 
         # 再清一次旧 events
         # try: _cleanup_old_events(self.logdir, self.keep_latest_event_files)

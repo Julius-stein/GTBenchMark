@@ -6,6 +6,10 @@ from torch.nn.attention import sdpa_kernel, SDPBackend
 import torch._dynamo as dynamo
 dynamo.config.cache_size_limit = 100      # 或 64
 dynamo.config.suppress_errors = False     # 出错别静默回退
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+import numpy as np
 
 
 # -------------------
@@ -31,14 +35,18 @@ torch.manual_seed(SEED)
 #     (8,  8, 4096, 128),
 # ]
 GRID = [
-    (32, 8,  128, 256),
-    (1,8,  4096, 256),
+    # (1, 8,  128, 256),
+    (1, 8,  512, 256),
+    (1, 8,  1024, 256),
+    (1, 8,  4096, 256),
+    (1, 8,  8192, 256),
+    (1, 8,  10112, 256),
 
 ]
 
 # 注意：这是“块级保留比例”，不是逐元素
-DENSITIES = [1.0,0.5, 0.25, 0.125,0.01,0.005]
-BLOCK_SIZES = [64]  # 可按需加减
+DENSITIES = [1.0,0.5, 0.125,0.01,0.005,0.00005]
+BLOCK_SIZES = [128]  # 可按需加减
 
 # -------------------
 # 实用函数
@@ -135,45 +143,159 @@ def time_op(fn, *args):
 # -------------------
 # 主流程
 # -------------------
+
+def _params_text_from_row(row: pd.Series) -> str:
+    """把无关参数整理成一段放图内的说明文字。"""
+    backend = getattr(SDP_BACKEND, "name", str(SDP_BACKEND))
+    return (
+        f"B={int(row.B)}, H={int(row.H)}, E={int(row.E)}, blk={int(row.blk)}\n"
+        f"BLOCK_SIZE={BLOCK_SIZE}, MASK_STYLE='{MASK_STYLE}'\n"
+        f"SDP_BACKEND={backend}, DTYPE={str(DTYPE).split('.')[-1]}, DEVICE={DEVICE}\n"
+        # f"WARMUP={WARMUP_ITERS}, MEASURE={MEASURE_ITERS}, torch.compile={TORCH_COMPILE}"
+    )
+
+def plot_speedup_vs_L_with_params(df: pd.DataFrame):
+    """
+    画 'Speedup vs L' 曲线，并在图内列出其它固定参数。
+    如果 (B,H,E,blk) 有多组配置，则逐组单独出图。
+    """
+    # 只考虑有效 speedup
+    df = df.copy()
+    df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=["speedup", "L", "density_nominal"])
+
+    # 以 (B,H,E,blk) 分组，一组出一张图
+    group_keys = ["B", "H", "E", "blk"]
+    for gkey, grp in df.groupby(group_keys):
+        plt.figure(figsize=(6, 4))
+        # 每条曲线一个 density
+        for dens, sub in grp.groupby("density_nominal"):
+            sub = sub.sort_values("L")
+            # 只画 L 维度变化的趋势；如果该 density 下 L 只有一个点则仍然画点
+            xs = sub["L"].to_numpy()
+            ys = sub["speedup"].to_numpy()
+            plt.plot(xs, ys, "o-", label=f"density={dens:.5f}")
+
+        # 轴与标题
+        plt.xscale("log")
+        plt.xlabel("Sequence length L (log scale)")
+        plt.ylabel("Speedup (SDPA / Flex)")
+        plt.title("Flex vs SDPA — Speedup vs L")
+        plt.grid(True, alpha=0.3)
+        plt.legend(title="Block density", loc="upper left")
+
+        # 在图内角落加固定参数说明
+        any_row = grp.iloc[0]
+        info_txt = _params_text_from_row(any_row)
+        plt.gca().text(
+            0.98, 0.02, info_txt,
+            transform=plt.gca().transAxes,
+            ha="right", va="bottom",
+            fontsize=9,
+            bbox=dict(boxstyle="round", alpha=0.08)
+        )
+
+        # 如果 L 点足够多，也可以给每条 density 做一个粗略“随 L 幂律”拟合并打印斜率
+        # 注：只做文本输出，不额外画拟合线，避免图面过杂
+        for dens, sub in grp.groupby("density_nominal"):
+            sub = sub.sort_values("L")
+            if len(sub) >= 3:
+                # 拟合: speedup ≈ a * L^b + c 过于不适定；这里用简化的 log-log 线性拟合 speedup ≈ A * L^b
+                x = sub["L"].to_numpy(dtype=float)
+                y = sub["speedup"].to_numpy(dtype=float)
+                # 仅使用正值
+                mask = (x > 0) & (y > 0)
+                x, y = x[mask], y[mask]
+                if len(x) >= 3:
+                    lx, ly = np.log(x), np.log(y)
+                    b, a = np.polyfit(lx, ly, 1)  # ly ≈ a + b*lx -> y ≈ exp(a) * L^b
+                    print(f"[L-trend] group={gkey}, density={dens:.5f}: speedup ~ L^{b:.3f}")
+
+        # 保存单图，文件名写上关键参数
+        B, H, E, blk = map(int, gkey)
+        fname = f"speedup_vs_L_B{B}_H{H}_E{E}_blk{blk}.png"
+        plt.tight_layout()
+        plt.savefig(fname, dpi=200)
+        plt.close()
+
+def analyze_results(df: pd.DataFrame):
+    # ---- 统计摘要 ----
+    avg_speedup = df['speedup'].mean()
+    flex_win_ratio = (df['winner'] == 'flex').mean()
+    print("\n=== Summary ===")
+    print(f"平均加速比: {avg_speedup:.3f}x")
+    print(f"Flex胜出比例: {flex_win_ratio*100:.1f}%")
+
+    # ---- 按density绘图 ----
+    plt.figure(figsize=(6,4))
+    for key, grp in df.groupby(['B','H','L','E']):
+        plt.plot(grp['density_actual'], grp['speedup'], 'o-', label=f"B{key[0]}L{key[2]}")
+    plt.xlabel("Actual density (block-level keep ratio)")
+
+    plt.xlabel("Density (block-level keep ratio)")
+    plt.ylabel("Speedup (SDPA / Flex)")
+    plt.title("Flex vs SDPA Speedup vs Density")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("speedup_vs_density.png", dpi=200)
+    plot_speedup_vs_L_with_params(df)
+
+    # ---- 可选：拟合曲线 ----
+    def model(x, a, b, c):  # 幂律拟合: speedup = a * x^b + c
+        return a * np.power(x, b) + c
+    xdata = df['density_actual'].to_numpy()
+    ydata = df['speedup'].to_numpy()
+    popt, _ = curve_fit(model, xdata, ydata, maxfev=10000)
+    print(f"拟合结果: a={popt[0]:.3f}, b={popt[1]:.3f}, c={popt[2]:.3f}")
+
+    xs = np.linspace(min(xdata), max(xdata), 200)
+    plt.figure(figsize=(5,4))
+    plt.scatter(xdata, ydata, s=10, alpha=0.5)
+    plt.plot(xs, model(xs, *popt), 'r--', label='Power-law fit')
+    plt.xlabel("Density")
+    plt.ylabel("Speedup")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("fit_speedup_curve.png", dpi=200)
+
 def main():
     torch.set_float32_matmul_precision("high")
     print(f"Device: {DEVICE}, dtype: {DTYPE}")
     print(f"SDPA backend preference: {SDP_BACKEND.name}")
+
+    results = []  # ← 新增结果收集
     header = f"{'B':>4} {'H':>3} {'L':>6} {'E':>5} {'blk':>4} {'tile_d':>7} | {'Flex(ms)':>9} {'SDPA(ms)':>9} {'speedup':>8} {'winner':>7}"
     print(header); print("-"*len(header))
 
-    with sdpa_kernel(SDPBackend.DEFAULT if SDP_BACKEND is None else SDP_BACKEND):
+    with sdpa_kernel(SDP_BACKEND):
         for (B, H, L, E) in GRID:
-            if (E & (E - 1)) != 0:
-                print(f"Skip (E not power-of-two): B={B},H={H},L={L},E={E}")
-                continue
-            try:
-                q, k, v = make_qkv(B, H, L, E)
-                bias = make_bias(B, H, L)
-                flex_fn = (lambda Q, K, V, BI, BM: flex_call(Q, K, V, BI, BM))
-                sdpa_fn = (lambda Q, K, V, BI: sdpa_call(Q, K, V, BI))
-                for blk in BLOCK_SIZES:
-                    for dens in DENSITIES:
-                        # dens==1.0：不传 block_mask，避免额外开销
-                        if dens >= 0.999:
-                            block_mask = None
-                            tile_d = 1.0
-                        else:
-                            tile_keep = build_tile_keep(B, H, L, dens, blk, style=MASK_STYLE)
-                            tile_d = float(tile_keep.float().mean().item())  # 真·块级密度
-                            block_mask = make_block_mask_from_tilekeep(tile_keep, blk, L)
+            q, k, v = make_qkv(B, H, L, E)
+            bias = make_bias(B, H, L)
+            for blk in BLOCK_SIZES:
+                for dens in DENSITIES:
+                    tile_d, block_mask = (1.0, None)
+                    if dens < 0.999:
+                        tile_keep = build_tile_keep(B,H,L,dens,blk,style=MASK_STYLE)
+                        tile_d = float(tile_keep.float().mean().item())
+                        block_mask = make_block_mask_from_tilekeep(tile_keep, blk, L)
 
-                        t_flex = time_op(flex_fn, q, k, v, bias, block_mask)
-                        t_sdpa = time_op(sdpa_fn, q, k, v, bias)
-                        spdup = (t_sdpa / t_flex) if t_flex > 0 else float("inf")
-                        winner = "flex" if t_flex < t_sdpa else "sdpa"
-                        print(f"{B:4d} {H:3d} {L:6d} {E:5d} {blk:4d} {tile_d:7.4f} | {t_flex:9.3f} {t_sdpa:9.3f} {spdup:8.3f} {winner:>7}")
+                    t_flex = time_op(flex_call, q,k,v,bias,block_mask)
+                    t_sdpa = time_op(sdpa_call, q,k,v,bias)
+                    spdup = (t_sdpa / t_flex) if t_flex>0 else float('inf')
+                    winner = "flex" if t_flex < t_sdpa else "sdpa"
+                    results.append(dict(
+                        B=B, H=H, L=L, E=E, blk=blk,
+                        density_nominal=dens,
+                        density_actual=tile_d,
+                        t_flex=t_flex, t_sdpa=t_sdpa,
+                        speedup=spdup, winner=winner
+                    ))
+                    print(f"{B:4d} {H:3d} {L:6d} {E:5d} {blk:4d} {tile_d:7.4f} | {t_flex:9.3f} {t_sdpa:9.3f} {spdup:8.3f} {winner:>7}")
 
-            except RuntimeError as e:
-                print(f"Skip B={B},H={H},L={L},E={E} due to error: {repr(e)}")
-                if "out of memory" in str(e).lower() and DEVICE == "cuda":
-                    torch.cuda.empty_cache()
-                continue
+    # === 保存与分析 ===
+    df = pd.DataFrame(results)
+    df.to_csv("results_flex_vs_sdpa.csv", index=False)
+    analyze_results(df)
 
 if __name__ == "__main__":
     main()

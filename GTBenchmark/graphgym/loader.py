@@ -277,7 +277,7 @@ def set_dataset_info(dataset):
     #!
     cfg.share.can_flex = False
     cfg.share.side = False
-    if len(dataset)>1:
+    if len(dataset)>1 and cfg.dataset.task=='graph':
         slices = dataset.slices["x"]   # x 的切片位置，比如 [0, 34, 67, ...]
         # 每个图的节点数就是相邻差值
         num_nodes_list = slices[1:] - slices[:-1]
@@ -479,7 +479,7 @@ def get_loader(dataset, sampler, batch_size, shuffle=True, split='train'):
             pin_memory=True
         )
 
-    elif sampler == "full_batch" or len(dataset) > 1:
+    elif sampler == "full_batch" or (len(dataset) > 1 and cfg.dataset.task=='graph'):
         loader_train = DataLoader(dataset,
                                   batch_size=batch_size,
                                   shuffle=shuffle,
@@ -526,14 +526,11 @@ def get_loader(dataset, sampler, batch_size, shuffle=True, split='train'):
                                   pin_memory=True)
     elif sampler == "cluster":
         loader_train = \
-            ClusterLoader(dataset[0],
-                          num_parts=cfg.train.train_parts,
-                          save_dir="{}/{}".format(cfg.dataset.dir,
-                                                  cfg.dataset.name.replace(
-                                                      "-", "_")),
-                          batch_size=batch_size, shuffle=shuffle,
-                          num_workers=cfg.num_workers,
-                          pin_memory=True)
+            ClusterLoader(dataset,
+                            batch_size=batch_size,
+                            shuffle=shuffle,
+                            num_workers=cfg.num_workers,
+                            pin_memory=True)
     else:
         raise NotImplementedError("%s sampler is not implemented!" % sampler)
     return loader_train

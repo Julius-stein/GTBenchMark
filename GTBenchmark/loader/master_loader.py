@@ -5,6 +5,7 @@ from functools import partial
 from typing import Union
 from torch_geometric.utils import index_to_mask
 from torch_geometric.data import Data
+from torch_geometric.loader import ClusterData 
 from sklearn.model_selection import train_test_split
 
 import numpy as np
@@ -42,6 +43,7 @@ from GTBenchmark.transform.dist_transforms import (add_dist_features, add_revers
                                                  effective_resistance_embedding,
                                                  effective_resistances_from_embedding)
 from GTBenchmark.transform.graph_partition import GraphPartitionTransform
+from GTBenchmark.transform.reorder import reorder_pyg_dataset
 
 from torch_geometric.datasets import (Actor, GNNBenchmarkDataset, Planetoid,
                                       TUDataset, WebKB, WikipediaNetwork, ZINC)
@@ -462,24 +464,58 @@ def load_dataset_master(format, name, dataset_dir):
         timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
                   + f'{elapsed:.2f}'[-3:]
         logging.info(f"Done! Took {timestr}")
-    
+  
     if cfg.metis.patches > 0:
         start = time.perf_counter()
         logging.info(f"Precomputing graph partition transform ...")
 
-        pre_transform_in_memory(dataset, GraphPartitionTransform(n_patches=cfg.metis.patches,
-                                                                 metis=cfg.metis.enable,
-                                                                 drop_rate=cfg.metis.drop_rate,
-                                                                 num_hops=cfg.metis.num_hops,
-                                                                 is_directed=False,
-                                                                 patch_rw_dim=cfg.metis.patch_rw_dim,
-                                                                 patch_num_diff=cfg.metis.patch_num_diff),
-                                show_progress=True)
+        # pre_transform_in_memory(dataset, GraphPartitionTransform(n_patches=cfg.metis.patches,
+        #                                                          metis=cfg.metis.enable,
+        #                                                          drop_rate=cfg.metis.drop_rate,
+        #                                                          num_hops=cfg.metis.num_hops,
+        #                                                          is_directed=False,
+        #                                                          patch_rw_dim=cfg.metis.patch_rw_dim,
+        #                                                          patch_num_diff=cfg.metis.patch_num_diff),
+        #                         show_progress=True)
+        dataset = ClusterData(dataset[0], num_parts=cfg.metis.patches, recursive=True)
         
         elapsed = time.perf_counter() - start
         timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
                   + f'{elapsed:.2f}'[-3:]
         logging.info(f"Done! Took {timestr}")
+
+    # re_enabled_list = []
+    # for key, recfg in cfg.items():
+    #     if key.startswith('reorder_') and recfg.enable:
+    #         pe_name = key.split('_', 1)[1]
+    #         pe_enabled_list.append(pe_name)
+
+    # if re_enabled_list:   
+
+    #     start = time.perf_counter()
+    #     logging.info(f"Reorder Graph index for GNN/MPAttn ...")
+
+    #     # pre_transform_in_memory(dataset, GraphPartitionTransform(n_patches=cfg.metis.patches,
+    #     #                                                          metis=cfg.metis.enable,
+    #     #                                                          drop_rate=cfg.metis.drop_rate,
+    #     #                                                          num_hops=cfg.metis.num_hops,
+    #     #                                                          is_directed=False,
+    #     #                                                          patch_rw_dim=cfg.metis.patch_rw_dim,
+    #     #                                                          patch_num_diff=cfg.metis.patch_num_diff),
+    #     #                         show_progress=True)
+    #     data = dataset[0]
+
+    #     # Step 1: 原图 edge_index 用 Random
+    #     data = reorder_pyg_dataset(data, methods=['Random'], attr_name='edge_index')
+
+    #     # Step 2: expander_edges 图用 Metis
+    #     data = reorder_pyg_dataset(data, methods=['Metis'], attr_name='expander_edges')
+    #     dataset[0] = data
+        
+    #     elapsed = time.perf_counter() - start
+    #     timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+    #                 + f'{elapsed:.2f}'[-3:]
+    #     logging.info(f"Done! Took {timestr}")
     
 
     # Set standard dataset train/val/test splits

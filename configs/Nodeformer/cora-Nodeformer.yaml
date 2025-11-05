@@ -1,6 +1,7 @@
-out_dir: ./results/Cora
+out_dir: ./results/test
 metric_agg: argmax
 metric_best: accuracy
+seed: 0
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: PyG-Planetoid
@@ -67,3 +68,5 @@ optim:
   weight_decay: 3e-5
 perf:
   mode: "full"
+  include_name: ["FullMask","RawNodeEncoder","LapPENodeEncoder","DummyEdgeEncoder","GeneralLayer","NodeFormerConv","FFN_block","GNNNodeHead"]
+

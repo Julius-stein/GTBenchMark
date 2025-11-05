@@ -10,7 +10,7 @@ from GTBenchmark.transform.graph2dense import to_dense_batch,get_graph_sizes
 
 @register_mask('full')
 class FullMask(Basemask):
-    def __init__(self,batch):
-        super().__init__(batch)
+    def __init__(self):
+        super().__init__()
                    
 

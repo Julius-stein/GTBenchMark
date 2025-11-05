@@ -1,6 +1,7 @@
 out_dir: ./results/Cora/
 metric_agg: argmax
 metric_best: accuracy
+seed: 0
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: PyG-Planetoid
@@ -18,7 +19,7 @@ train:
   mode: custom
   sampler: full_batch
 gnn:
-  mode: GPS
+  mode: "off"
   layer_type: GCN
   act: gelu
   agg: mean
@@ -34,7 +35,7 @@ gt:
   batch_norm: false
   dim_hidden: 96
   dropout: 0.5
-  layer_norm: false
+  layer_norm: true
   layer_type: Transformer
   attn_type: GeneralAttention
   layers: 3
@@ -51,7 +52,7 @@ model:
 optim:
   base_lr: 0.0005
   clip_grad_norm: true
-  max_epoch: 200
+  max_epoch: 300
   num_warmup_epochs: 10
   optimizer: adamW
   scheduler: cosine_with_warmup
@@ -76,5 +77,4 @@ posenc_LapPE:
   raw_norm_type: none
 perf:
   mode: full
-  include_name: ["FullMask","RawNodeEncoder","LapPENodeEncoder","DummyEdgeEncoder","GeneralMultiLayer","ExphormerAttention","GCNConv","GeneralAttn","FFN_block","GNNNodeHead"]
-
+  include_name: ["FullMask","RawNodeEncoder","LapPENodeEncoder","DummyEdgeEncoder","GeneralAttn","FFN_block","GNNNodeHead"]

@@ -21,7 +21,7 @@ class Basemask(nn.Module):
       - block_mask 会放在 batch.flex_block_mask；attn_mask 置为 None
     """
 
-    def __init__(self, batch):
+    def __init__(self,):
         super().__init__()
         # ---- 检测 Flex ----
         self.Trans = False
@@ -34,7 +34,16 @@ class Basemask(nn.Module):
 
         # 路径选择
         self.flatattn_type = (cfg.gt.attn_type == "BatchedAttention")
+        self.batch_size = 0
+        self.node_counts = None
+        self.max_num_nodes = 0
+        self.flat_size = 0
 
+        # 稠密路径缓存
+        self.Dmask = None          # [B, Nmax] bool
+        self.Gindex = None         # 扁平回填索引
+
+    def forward(self,batch):
         # Batch 维信息：统一基于 batch.batch（兼容 GraphToken 改写）
         if hasattr(batch, "num_graphs") and batch.num_graphs > 1:
             self.batch_size = int(batch.num_graphs)
@@ -47,26 +56,17 @@ class Basemask(nn.Module):
             else:
                 self.max_num_nodes = cfg.share.targetsize
             self.flat_size = int(self.node_counts.sum().item())
-        else:
-            self.batch_size = 0
-            self.node_counts = None
-            self.max_num_nodes = 0
-            self.flat_size = 0
-
-        # 稠密路径缓存
-        self.Dmask = None          # [B, Nmax] bool
-        self.Gindex = None         # 扁平回填索引
-
+        
         # 绑定 forward / 回填方法
         if self.flatattn_type:
-            self.forward = self._forward_flat    # type: ignore[assignment]
             self.from_dense_batch = self._noop   # 扁平路径无需回填
-        elif self.batch_size==0:
-            self.forward = self.fakebatch
+            return self._forward_flat(batch)    # type: ignore[assignment]
+        elif self.batch_size==0: #full-batch方法
             self.from_dense_batch = self.nofakebatch
+            return self.fakebatch(batch)
         else:
-            self.forward = self._forward_general # type: ignore[assignment]
             self.from_dense_batch = self._from_dense_batch
+            return self._forward_general(batch)
 
     # -------------------------
     # General：to_dense_batch + Padding

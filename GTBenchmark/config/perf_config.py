@@ -30,8 +30,9 @@ def set_cfg_perf(cfg):
     # 模块计时
     cfg.perf.enable_module_timer= False   # light/e2e 默认 False，modules/full 默认 True
     cfg.perf.use_cuda_events= True
-    cfg.perf.include_modules= None
-    cfg.perf.exclude_modules= None
+    cfg.perf.include_name= []
+    cfg.perf.include_regex= []
+    cfg.perf.exclude_regex= []
     cfg.perf.module_topk_per_window= 20
 
     # 随机/窗口采样（模块+OP 可共用）

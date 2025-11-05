@@ -51,7 +51,7 @@ gt:
   ffn_dim: 160
   head: node
   encoder_type : cascade
-  node_encoder_list: []
+  node_encoder_list: [RawEncoder]
   edge_encoder_list: [DummyEdge,Edgefixer]
 
 model:
@@ -61,11 +61,31 @@ model:
 optim:
   base_lr: 0.001
   clip_grad_norm: true
-  max_epoch: 600
+  max_epoch: 200
   num_warmup_epochs: 5
   optimizer: adamW
   clip_grad_norm_value: 1.0
   scheduler: cosine_with_warmup
   weight_decay: 0.001
 perf:
-  mode: "off"
+  mode: "full"
+reorder_Metis:
+  enable: false
+  block_size: 128
+reorder_RCM:
+  enable: false
+reorder_Slashburn:
+  enable: false
+  block_size: 128
+reorder_Random:
+  enable: false
+  block_size: 128
+reorder_BFS:
+  enable: false
+  block_size: 128
+reorder_Degree:
+  enable: false
+  block_size: 128
+reorder_GOrder:
+  enable: false
+  block_size: 128

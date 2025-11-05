@@ -71,7 +71,7 @@ optim:
   scheduler: cosine_with_warmup
   clip_grad_norm_value: 1.0
   weight_decay: 1e-5
-out_dir: results
+
 posenc_GraphormerBias:
   enable: false
   node_degrees_only: true

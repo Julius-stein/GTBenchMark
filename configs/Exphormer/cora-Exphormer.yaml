@@ -1,4 +1,4 @@
-out_dir: ./results/Expcora
+out_dir: ./results/test/
 metric_agg: argmax
 metric_best: accuracy
 dataset:
@@ -38,8 +38,8 @@ gt:
   dim_hidden: 96
   dropout: 0.4
   layer_norm: false
-  layer_type: Transformer
-  attn_type: MPAttention
+  layer_type: Exphormer
+  attn_type: ExphormerAttention
   layers_post_gt: 1
   layers: 3
   attn_heads: 1
@@ -56,10 +56,11 @@ model:
 optim:
   base_lr: 0.003
   clip_grad_norm: true
-  max_epoch: 2
+  max_epoch: 200
   num_warmup_epochs: 10
   optimizer: adamW
   scheduler: cosine_with_warmup
   weight_decay: 3e-5
 perf:
-  mode: "off"
+  mode: "full"
+  include_name: ["FullMask","RawNodeEncoder","ExpanderEdgeFixer","DummyEdgeEncoder","GeneralMultiLayer","ExphormerAttention","GCNConv","FFN_block","GNNNodeHead"]

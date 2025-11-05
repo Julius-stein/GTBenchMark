@@ -62,7 +62,7 @@ model:
 optim:
   base_lr: 0.001
   clip_grad_norm: true
-  max_epoch: 600
+  max_epoch: 2
   num_warmup_epochs: 5
   optimizer: adamW
   clip_grad_norm_value: 1.0

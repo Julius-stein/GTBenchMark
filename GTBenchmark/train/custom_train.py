@@ -73,7 +73,7 @@ def check_grad(model):
 #                             params=cfg.params,
 #                             dataset_name=cfg.dataset.name)
 #         time_start = time.time()
-
+# global_node_toggle = torch.zeros(169343)
 def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler,monitor, batch_accumulation):
     pbar = tqdm(total=len(loader), disable=not cfg.train.tqdm)
     
@@ -128,7 +128,12 @@ def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler,monitor, 
                 # global_node_toggle[batch.n_id[:batch.batch_size].cpu()] = ~global_node_toggle[batch.n_id[:batch.batch_size].cpu()]
 
                 with monitor.section("forward"), monitor.profiled_step():
-                    pred, true = model(batch)
+                    if cfg.model.type == 'NodeFormer' and cfg.gt.use_edge_loss:
+                        pred, true, extra_loss = model(batch)
+                    elif cfg.model.type == 'CoBFormer':
+                        pred, true, extra_loss = model(batch)
+                    else:
+                        pred, true = model(batch)
 
                     if cfg.model.loss_fun == 'curriculum_learning_loss':
                         loss, pred_score = compute_loss(pred, true, cur_epoch)
@@ -281,6 +286,7 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
         # else:
         #     wrong_ids = torch.where(~global_node_toggle)[0]
         #     print("⚠️ 有问题的节点 ID（前20）:", wrong_ids[:20].tolist())
+        
         # val_perf = perf[1]
         # if cfg.optim.scheduler == 'reduce_on_plateau':
         #     scheduler.step(val_perf[-1]['loss'])

@@ -14,21 +14,14 @@ dataset:
   transductive: true
   add_self_loops: True
 
-posenc_GraphormerBias:
-  enable: False
-  node_degrees_only: True
-
-  # SpatialEncoder（最短路径距离，510 表示不连通） ——  
-  # node_degrees_only 为 true 时下面设置无效
-  num_spatial_types: 5
-  num_in_degrees: 64            #现在模型自动识别最多度数，设置废弃 
-  num_out_degrees: 64           #
-
-  # BiasEncoder（多跳路径上的边特征） ——  
-  enable_path_bias: True        
-  multi_hop_max_dist: 5         # 截/填 path 长度到 5 hops
-  path_edge_feat_dim: 4         # bond 特征维度（4 种键合）
-  use_graph_token: false
+metis:
+  drop_rate: 0.3
+  enable: true
+  num_hops: 1
+  online: true
+  patch_num_diff: -1
+  patch_rw_dim: 0
+  patches: 3000
 
 train:
   enable_ckpt: false
@@ -36,12 +29,11 @@ train:
   mode: custom
   batch_size: 256
   tqdm: True
-  sampler: neighbor
+  sampler: cluster
   persistent_workers: True
   pin_memory: True
-  neighbor_sizes: [25,10]
 val:
-  sampler: neighbor
+  sampler: cluster
   iter_per_epoch: -1
   tqdm: True
 model:
@@ -58,7 +50,8 @@ gt:
   layers: 2
   attn_heads: 8
   ffn_dim: 256
-  head: minibatch_node
+  head: node
+  # head: cluster_node
   encoder_type : cascade
   node_encoder_list: [RawEncoder]
   edge_encoder_list: [DummyEdge]
@@ -75,7 +68,7 @@ gnn:
 optim:
   base_lr: 0.0009588557917457037
   clip_grad_norm: true
-  max_epoch: 60
+  max_epoch: 200
   num_warmup_epochs: 5
   optimizer: adamW
   clip_grad_norm_value: 0.4157799272483611
@@ -83,4 +76,6 @@ optim:
   weight_decay: 6.440860069088798e-06
 
 perf:
-  mode: "full" 
+  mode: "off" 
+  include_regex: [] #！小写
+  include_name: ["DummyEdgeEncoder","GeneralAttn","FFN_block"]

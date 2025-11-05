@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import GTBenchmark.graphgym.register as register 
 from GTBenchmark.graphgym.register import register_layer 
+from GTBenchmark.layer.FFN import FFN_block
 from GTBenchmark.graphgym.config import cfg 
 
 @register_layer('GraphTransformerLayer')
@@ -18,7 +19,7 @@ class GraphTransformerLayer(nn.Module):
 
         # —— 缓存超参数 —— #
         self.p_res = float(cfg_gt.dropout)
-        self.p_act = float(getattr(cfg_gt, "activation_dropout", 0.0))
+
         self.use_ln = bool(cfg_gt.layer_norm)
         self.use_bn = bool(cfg_gt.batch_norm)
         self.ffn_dim = (cfg_gt.ffn_dim if cfg_gt.ffn_dim != 0 else dim_h * 2)
@@ -40,10 +41,7 @@ class GraphTransformerLayer(nn.Module):
         self.norm2 = build_norm()
 
         # —— MLP —— #
-        self.fc1 = nn.Linear(dim_h, self.ffn_dim)
-        self.act = register.act_dict[cfg.gt.act]
-        self.drop_act = nn.Dropout(self.p_act) if self.p_act > 0 else nn.Identity()
-        self.fc2 = nn.Linear(self.ffn_dim, dim_h)
+        self.ffn = FFN_block(dim_h)
 
         # —— 残差 Dropout —— #
         self.drop_res = nn.Dropout(self.p_res) if self.p_res > 0 else nn.Identity()
@@ -64,10 +62,7 @@ class GraphTransformerLayer(nn.Module):
 
         # 2) FFN block (Pre-Norm)
         h = self.norm2(x)
-        h = self.fc1(h)
-        h = self.act(h)
-        h = self.drop_act(h)
-        h = self.fc2(h)
+        h = self.ffn(x)
         h = self.drop_res(h)
         x = x + h
 
@@ -85,10 +80,7 @@ class GraphTransformerLayer(nn.Module):
         x = self.norm1(x + h)
 
         # 2) FFN block
-        h = self.fc1(x)
-        h = self.act(h)
-        h = self.drop_act(h)
-        h = self.fc2(h)
+        h = self.ffn(x)
         h = self.drop_res(h)
         x = self.norm2(x + h)
 
@@ -97,3 +89,6 @@ class GraphTransformerLayer(nn.Module):
 
     def forward(self, batch, mask):
         return self._forward(batch, mask)
+    
+
+

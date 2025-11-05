@@ -91,6 +91,7 @@ def run():
             logging.info('Select GPU {}'.format(args.gpu))
             if cfg.device == 'auto':
                 cfg.device = 'cuda:{}'.format(args.gpu)
+                
         if cfg.pretrained.dir:
             cfg = load_pretrained_model_cfg(cfg)
         logging.info(f"[*] Run ID {run_id}: seed={cfg.seed}, "

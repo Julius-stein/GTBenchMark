@@ -24,6 +24,7 @@ class GTModel(torch.nn.Module):
         self.layer_norm = cfg.gt.layer_norm
         self.l2_norm    = getattr(cfg.gt, "l2_norm", False)  # 可能不存在就给缺省
         GNNHead         = register.head_dict[cfg.gt.head]
+        self.maskGen = register.mask_dict[cfg.mask.name]()
 
         self.encoder = FeatureEncoder()
         if cfg.gnn.layers_pre_mp > 0:
@@ -108,63 +109,63 @@ class GTModel(torch.nn.Module):
         return graph
 
     # ---------------- 执行路径 ----------------
-    def _run_attn_only(self,batch,maskGen):
+    def _run_attn_only(self,batch):
         return self._gt_stack(batch,None)
-    def _run_gt_only(self, batch, maskGen):
+    def _run_gt_only(self, batch):
         # off：GT 栈内部已决定是否融合（hybrid 由层内部完成）
-        dense, mask = maskGen(batch)
+        dense, mask = self.maskGen(batch)
         dense = self._gt_stack(dense, mask)
-        return maskGen.from_dense_batch(dense)
+        return self.maskGen.from_dense_batch(dense)
     
-    def _run_gps(self, batch, maskGen):
+    def _run_gps(self, batch):
         # gps：GT 栈内部已决定是否融合（hybrid 由层内部完成）
         for layer in self.gt_layers:
-            batch = layer(batch, maskGen)
+            batch = layer(batch, self.maskGen)
         return batch
 
-    def _run_post(self, batch, maskGen):
+    def _run_post(self, batch):
         # 先 GT 全栈，再 GNN 全栈
-        dense, mask = maskGen(batch)
+        dense, mask = self.maskGen(batch)
         dense = self._gt_stack(dense, mask)
-        graph = maskGen.from_dense_batch(dense)
+        graph = self.maskGen.from_dense_batch(dense)
         graph = self._gnn_stack(graph)
         return graph
 
-    def _run_cascade(self, batch, maskGen):
+    def _run_cascade(self, batch):
         # 交替：GT(i) -> GNN(i) -> ...
-        dense, mask = maskGen(batch)
+        dense, mask = self.maskGen(batch)
         i = j = 0
         while i < len(self.gt_layers) or j < len(self.gnn_layers):
             if i < len(self.gt_layers):
                 dense = self.gt_layers[i](dense, mask)
                 i += 1
             if j < len(self.gnn_layers):
-                graph = maskGen.from_dense_batch(dense)
+                graph = self.maskGen.from_dense_batch(dense)
                 graph = self.gnn_layers[j](graph)
                 j += 1
-                dense, mask = maskGen.to_dense_batch(graph)
-        return maskGen.from_dense_batch(dense)
+                dense, mask = self.maskGen.to_dense_batch(graph)
+        return self.maskGen.from_dense_batch(dense)
 
-    def _run_parallel(self, batch, maskGen):
+    def _run_parallel(self, batch):
         # GT 全栈 + GNN 全栈，然后 concat→MLP
-        dense, mask = maskGen(batch)
+        dense, mask = self.maskGen(batch)
         gt_out = self._gt_stack(dense, mask)
 
-        graph = maskGen.from_dense_batch(dense)
+        graph = self.maskGen.from_dense_batch(dense)
         gnn_out_graph = self._gnn_stack(graph)
-        gnn_out_dense, _ = maskGen.to_dense_batch(gnn_out_graph)
+        gnn_out_dense, _ = self.maskGen.to_dense_batch(gnn_out_graph)
 
         fused = torch.cat([gt_out.x, gnn_out_dense.x], dim=-1)
         gt_out.x = self.parallel_fuse(fused)
-        return maskGen.from_dense_batch(gt_out)
+        return self.maskGen.from_dense_batch(gt_out)
 
     # ---------------- 标准 forward（零判断） ----------------
     def forward(self, batch):
         batch = self.encoder(batch)
         if self.pre_mp is not None:
             batch = self.pre_mp(batch)
-        maskGen = register.mask_dict[cfg.mask.name](batch)
-        graph_batch = self.run(batch, maskGen)
+
+        graph_batch = self.run(batch)
 
         if self.l2_norm and hasattr(graph_batch, 'x'):
             graph_batch.x = F.normalize(graph_batch.x, p=2, dim=-1)

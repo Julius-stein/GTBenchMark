@@ -2,7 +2,7 @@ out_dir: ./results/arxiv/
 metric_agg: argmax
 metric_best: accuracy
 num_workers: 0
-seed: 442
+seed: 42
 # device: cuda:1
 dataset:
   dir: /mnt/data2/duxin/.datasets
@@ -13,43 +13,47 @@ dataset:
   task_type: classification
   transductive: true
   add_self_loops: True
-
+metis:
+  patches: 3000
 train:
   enable_ckpt: false
   eval_period: 5
   mode: custom
   batch_size: 256
   tqdm: false
-  sampler: neighbor
+  sampler: cluster
   persistent_workers: True
   pin_memory: True
   neighbor_sizes: [25,10]
+val:
+  sampler: cluster
 gnn:
   mode: GPS
-  layer_type: GCN
+  layer_type: GAT
   act: relu
   agg: add
   batchnorm: true
-  dim_inner: 80
+  dim_inner: 128
   dropout: 0.3
   layers_post_mp: 1
   layers_pre_mp: 0
   normalize_adj: false
 
 gt:
-  attn_dropout: 0.167
-  batch_norm: true
-  dim_hidden: 128
-  dropout: 0.612
-  layer_norm: false
+  attn_dropout: 0.2
+  batch_norm: false
+  dim_hidden: 256
+  dropout: 0.5
+  residual: true 
+  layer_norm: true
   layer_type: Transformer
   attn_type: GeneralAttention
-  layers: 2
+  layers: 4
   attn_heads: 8
-  ffn_dim: 80
-  head: inductive_node
+  ffn_dim: 1024
+  head: node
   encoder_type : cascade
-  node_encoder_list: [RawEncoder,GraphormerBias]
+  node_encoder_list: [RawEncoder]
   edge_encoder_list: [DummyEdge]
 
 model:
@@ -57,16 +61,16 @@ model:
   loss_fun: cross_entropy
   type: GTModel
 optim:
-  base_lr: 0.0009588557917457037
+  base_lr: 0.005
   clip_grad_norm: true
-  max_epoch: 600
+  max_epoch: 500
   num_warmup_epochs: 5
   optimizer: adamW
-  clip_grad_norm_value: 0.4157799272483611
+  clip_grad_norm_value: 0.5
   scheduler: cosine_with_warmup
-  weight_decay: 6.440860069088798e-06
+  weight_decay: 5e-4
 posenc_GraphormerBias:
-  enable: true
+  enable: false
   node_degrees_only: true
   num_spatial_types: 20
   use_graph_token: false
@@ -82,4 +86,4 @@ posenc_LapPE:
   n_heads: 4
   raw_norm_type: none
 perf:
-  mode: "full"
+  mode: "off"
