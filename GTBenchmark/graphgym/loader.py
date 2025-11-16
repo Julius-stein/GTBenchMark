@@ -212,6 +212,11 @@ def set_dataset_info(dataset):
     except Exception:
         cfg.share.dim_in = 1
 
+    try:
+        cfg.share.edge_dim_in = dataset.data.edge_attr.shape[-1]
+    except Exception:
+        cfg.share.edge_dim_in = 1
+
     # --- get label tensor y (graph-level or edge-level depending on task) ---
     y = None
     try:
@@ -274,23 +279,15 @@ def set_dataset_info(dataset):
     if hasattr(dataset, 'dynamicTemporal'):
         cfg.share.num_splits = len(dataset)
     # 直接索引 dataset[i]
-    #!
-    cfg.share.can_flex = False
     cfg.share.side = False
     if len(dataset)>1 and cfg.dataset.task=='graph':
         slices = dataset.slices["x"]   # x 的切片位置，比如 [0, 34, 67, ...]
         # 每个图的节点数就是相邻差值
         num_nodes_list = slices[1:] - slices[:-1]
         cfg.share.max_num_nodes = max(num_nodes_list).item()
-        cfg.share.can_flex = _is_pow2(cfg.gt.dim_hidden//cfg.gt.attn_heads) and (cfg.gt.attn_dropout == 0.0) and cfg.gt.use_flex
-        if cfg.share.can_flex and cfg.gt.use_flex:
-            BLOCK_SIZE = 128
-            cfg.share.targetsize = int((cfg.share.max_num_nodes // BLOCK_SIZE+1) * BLOCK_SIZE)
-        else:
-            cfg.share.targetsize = -1
     #!Graphormer记录度数
-    if cfg.train.sampler == "neighbor":
-        cfg.share.targetsize = -1
+    if "TypeDictNode" in cfg.gt.node_encoder_list:
+        cfg.share.num_types = int(dataset.data.x.max().item() + 1)
     
     count_degree(dataset)
 

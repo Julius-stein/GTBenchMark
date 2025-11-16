@@ -394,7 +394,7 @@ def set_cfg(cfg):
     cfg.gnn.self_msg = 'concat'
 
     # Number of attention heads
-    cfg.gnn.attn_heads = 1
+    cfg.gnn.n_heads = 1
 
     # After concat attention heads, add a linear layer
     cfg.gnn.attn_final_linear = False

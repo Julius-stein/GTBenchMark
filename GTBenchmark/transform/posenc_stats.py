@@ -1,11 +1,13 @@
 from copy import deepcopy
+import networkx as nx
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from functools import partial
 from numpy.linalg import eigvals
 from torch_geometric.utils import (get_laplacian, to_scipy_sparse_matrix,
-                                   to_undirected, to_dense_adj, scatter)
+                                   to_undirected, to_dense_adj, scatter, to_networkx)
 from torch_geometric.utils.num_nodes import maybe_num_nodes
 from .graphormer import graphormer_pre_processing_NEW
 # from .graphormer_slide import graphormer_preprocess_light
@@ -35,7 +37,7 @@ def compute_posenc_stats(data, pe_types, is_undirected, cfg):
     # Verify PE types.
     for t in pe_types:
         if t not in ['LapPE', 'EquivStableLapPE', 'SignNet', 'RWSE', 'HKdiagSE',
-                     'HKfullPE', 'ElstaticSE', 'GraphormerBias']:
+                     'HKfullPE', 'ElstaticSE', 'GraphormerBias', 'LapRaw', 'RRWP', 'WLSE']:
             raise ValueError(f"Unexpected PE stats selection {t} in {pe_types}")
 
     # Basic preprocessing of the input graph.
@@ -146,6 +148,63 @@ def compute_posenc_stats(data, pe_types, is_undirected, cfg):
             data,
             cfg.posenc_GraphormerBias.num_spatial_types
         )
+    if 'LapRaw' in pe_types:
+        def normalize_graph(g):
+            g = g + g.T
+            g[g > 0.] = 1.0
+            deg = g.sum(axis=1).reshape(-1)
+            deg[deg == 0.] = 1.0
+            deg = torch.diag(deg ** -0.5)
+            adj = deg @ g @ deg
+            L = torch.eye(g.shape[0],device=g.device) - adj
+            return L
+
+
+        def eigen_decompositon(g):
+            "The normalized (unit “length”) eigenvectors, "
+            "such that the column v[:,i] is the eigenvector corresponding to the eigenvalue w[i]."
+            g = normalize_graph(g)
+            e, u = custom_eigh(g)
+            return e, u
+
+        def feature_normalize(x):
+            rowsum = x.sum(axis=1, keepdims=True)
+            rowsum = torch.clip(rowsum, 1, 1e10)
+            return x / rowsum
+        
+        data.EigVals, data.EigVecs = eigen_decompositon (to_dense_adj(undir_edge_index)[0])
+        # dataset.graph['node_feat'] = feature_normalize(dataset.graph['node_feat']).to(device)
+
+    if 'RRWP' in pe_types:
+        param = cfg.posenc_RRWP
+        transform = partial(add_full_rrwp,
+                            walk_length=param.ksteps,
+                            attr_name_abs="rrwp",
+                            attr_name_rel="rrwp",
+                            add_identity=True,
+                            spd=param.spd, # by default False
+                            )
+        data = transform(data)
+    
+    if 'WLSE' in pe_types:
+        # Add the WLSE encoding to the graph
+        pecfg = cfg.posenc_WLSE
+        G = to_networkx(data, to_undirected=True)
+        edge_attr = data.edge_attr if hasattr(data, 'edge_attr') else None
+        hashlist = nx.weisfeiler_lehman_subgraph_hashes(G, edge_attr=edge_attr, iterations = pecfg.iterations)
+
+        # Create a mapping from the hashes to the node types
+        hash_to_type = {}
+        for i, h in enumerate(hashlist):
+            if h not in hash_to_type:
+                hash_to_type[h] = len(hash_to_type)
+
+        data.WLTag = torch.tensor([hash_to_type[h] for h in hashlist], dtype=torch.long)
+
+        data.WLTag = data.WLTag.view(-1, 1)
+
+        pecfg.num_types = len(hash_to_type)
+
 
     return data
 
@@ -405,3 +464,23 @@ def eigvec_normalizer(EigVecs, EigVals, normalization="L2", eps=1e-12):
     EigVecs = EigVecs / denom
 
     return EigVecs
+
+
+def custom_eigh(L):
+    """Compute eigenvalues and eigenvectors of a Laplacian matrix.
+    Due to a bug in PyTorch, we use scipy's eigh instead of torch.linalg.eigh when matrix size is large.
+    
+
+    Args:
+        L: Laplacian matrix (Tensor)
+    Returns:
+        EigVals: Eigenvalues
+        EigVecs: Eigenvectors
+    """
+    if L.shape[0] > 1000:
+        # Use scipy's eigh for large matrices
+        EigVals, EigVecs = np.linalg.eigh(L.cpu().numpy())
+        return torch.from_numpy(EigVals).to(L.device), torch.from_numpy(EigVecs).to(L.device)
+    else:
+        # Use PyTorch's eigh for small matrices
+        return torch.linalg.eigh(L)

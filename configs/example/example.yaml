@@ -79,8 +79,6 @@ val:
   tqdm: false
 mask:
   name: full
-  use_flex: false
-  flex_block_size: 64
 model:
   edge_decoding: dot
   graph_pooling: add
@@ -98,7 +96,7 @@ gnn:
   attn_dropout: 0.0
   attn_final_linear: false
   attn_final_linear_bn: false
-  attn_heads: 1
+  n_heads: 1
   batch_norm: true
   batchnorm: false
   clear_feature: true
@@ -133,7 +131,7 @@ gt:
   act: relu
   activation_dropout: 0.0
   attn_dropout: 0.06558662646658918
-  attn_heads: 4
+  n_heads: 4
   attn_type: MPAttention
 
   batch_norm: true
@@ -164,7 +162,6 @@ gt:
   tau: 1.0
   use_act: true
   use_edge_loss: true
-  use_flex: false
   use_gumbel: true
   use_jk: false
   virtual_nodes: 0

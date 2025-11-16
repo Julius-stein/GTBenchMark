@@ -48,7 +48,7 @@ gt:
   layer_type: Transformer
   attn_type: GeneralAttention
   layers: 4
-  attn_heads: 2
+  n_heads: 2
   ffn_dim: 256
   head: minibatch_node
   encoder_type : cascade

@@ -166,7 +166,7 @@ class GTLayer(nn.Module):
             })
         elif local_gnn_type == 'GAT':
             self.local_model = HeteroConv({
-                edge_type: GATConv(self.dim_in, self.dim_out, heads=cfg.gnn.attn_heads, 
+                edge_type: GATConv(self.dim_in, self.dim_out, heads=cfg.gnn.n_heads, 
                                     agg=cfg.gnn.agg) for edge_type in self.metadata[1]
             })
         elif local_gnn_type == 'GatedGCN':

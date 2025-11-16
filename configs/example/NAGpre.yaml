@@ -39,7 +39,7 @@ gt:
   layers: 1
   layer_type: Transformer
   attn_type: GeneralAttention
-  attn_heads: 8
+  n_heads: 8
   dim_hidden: 128  
   dropout: 0.1     # global transformer dropout
   attn_dropout: 0.1

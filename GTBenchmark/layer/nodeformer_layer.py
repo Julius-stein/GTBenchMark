@@ -268,7 +268,7 @@ class NodeFormerConv(nn.Module):
     # config.n_heads, kernel_transformation=softmax_kernel_transformation, projection_matrix_type='a',
     #              nb_random_features=10, use_gumbel=True, nb_gumbel_sample=10, rb_order=0, rb_trans='sigmoid', use_edge_loss=True):
         super(NodeFormerConv, self).__init__()
-        self.n_heads = cfg.gt.attn_heads
+        self.n_heads = cfg.gt.n_heads
         self.Wk = nn.Linear(dim_h, dim_h * self.n_heads)
         self.Wq = nn.Linear(dim_h, dim_h * self.n_heads)
         self.Wv = nn.Linear(dim_h, dim_h * self.n_heads)

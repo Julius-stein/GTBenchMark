@@ -149,14 +149,14 @@ def to_dense_batch(
     # —— 在这里多返回 idx 作为 s2dindex
     return out, mask, idx
 
-
+@disable_dynamic_shapes(required_args=['batch_size', 'max_num_nodes'])
 def to_dense_adj(
     edge_index: Tensor,
     batch: OptTensor = None,
     edge_attr: OptTensor = None,
     max_num_nodes: Optional[int] = None,
     batch_size: Optional[int] = None,
-) -> Tensor:
+):
     r"""Converts batched sparse adjacency matrices given by edge indices and
     edge attributes to a single dense batched adjacency matrix.
 
@@ -240,4 +240,4 @@ def to_dense_adj(
     adj = scatter(edge_attr, idx, dim=0, dim_size=flattened_size, reduce='sum')
     adj = adj.view(size)
 
-    return adj
+    return adj, idx

@@ -50,7 +50,7 @@ gt:
   layer_type: Exphormer
   attn_type: ExphormerAttention
   layers: 12
-  attn_heads: 8
+  n_heads: 8
   ffn_dim: 128
   act : relu
   head: san_graph

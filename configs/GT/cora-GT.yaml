@@ -39,7 +39,7 @@ gt:
   layer_type: Transformer
   attn_type: GeneralAttention
   layers: 3
-  attn_heads: 1
+  n_heads: 1
   ffn_dim: 192
   head: node
   node_encoder_list: [RawEncoder,LapPE]

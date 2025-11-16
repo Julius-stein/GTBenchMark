@@ -13,7 +13,7 @@ from torch_geometric.nn import Linear as Linear_pyg
 from GTBenchmark.layer.bigbird_layer import SingleBigBirdLayer
 from GTBenchmark.layer.gatedgcn_layer import GatedGCNLayer
 from GTBenchmark.layer.gine_conv_layer import GINEConvESLapPE
-from GTBenchmark.transform.graph2dense import to_dense_batch
+from GTBenchmark.transform.graph2dense import to_dense_batch, to_dense_adj
 
 @register_layer("GPSLayer")
 class GPSLayer(nn.Module):
@@ -51,7 +51,7 @@ class GPSLayer(nn.Module):
         super().__init__()
 
         self.dim_h = dim_h
-        self.num_heads = cfg.gt.attn_heads
+        self.num_heads = cfg.gt.n_heads
         self.attn_dropout = cfg.gt.attn_dropout
         self.layer_norm = cfg.gt.layer_norm
         self.batch_norm = cfg.gt.batch_norm
@@ -61,6 +61,7 @@ class GPSLayer(nn.Module):
         self.equivstable_pe = cfg.posenc_EquivStableLapPE.enable
         self.activation = register.act_dict[cfg.gt.act]
         self.ffn_dim = cfg.gt.ffn_dim
+
 
         self.log_attn_weights = False
         if self.log_attn_weights and global_model_type not in ['Transformer',
@@ -127,7 +128,7 @@ class GPSLayer(nn.Module):
         else:
             raise ValueError(f"Unsupported local GNN model: {local_gnn_type}")
         self.local_gnn_type = local_gnn_type
-
+        self.edge_line = nn.Linear(dim_h,self.num_heads)
         # Global attention transformer-style model.
         if global_model_type == 'None':
             self.self_attn = None
@@ -142,10 +143,10 @@ class GPSLayer(nn.Module):
             #     d_model=dim_h, nhead=num_heads,
             #     dim_feedforward=2048, dropout=0.1, activation=F.relu,
             #     layer_norm_eps=1e-5, batch_first=True)
-        # elif global_model_type == 'Performer':
-        #     self.self_attn = SelfAttention(
-        #         dim=dim_h, heads=num_heads,
-        #         dropout=self.attn_dropout, causal=False)
+        elif global_model_type == 'Performer':
+            self.self_attn = SelfAttention(
+                dim=dim_h, heads=self.num_heads,
+                dropout=self.attn_dropout, causal=False)
         # elif global_model_type == "BigBird":
         #     bigbird_cfg.dim_hidden = dim_h
         #     bigbird_cfg.n_heads = num_heads
@@ -227,6 +228,8 @@ class GPSLayer(nn.Module):
             if self.batch_norm:
                 h_local = self.norm1_local(h_local)
             h_out_list.append(h_local)
+        if hasattr(batch,"adj"):
+            batch.attn_bias = self.edge_line(batch.adj)
 
         # Multi-head attention.
         if self.self_attn is not None:
@@ -242,7 +245,9 @@ class GPSLayer(nn.Module):
                     # Use Graphormer-like conditioning, requires `batch.attn_bias`.
                     h_attn = self._sa_block(dense_batch, batch.attn_bias, ~mask)[mask]
                 elif self.global_model_type == 'Performer':
-                    h_attn = self.self_attn(dense_batch, mask=mask)[mask]
+                    dense_batch.x = self.self_attn(dense_batch.x, mask=mask)
+                    batch_attn = dense_batch
+                    batch_attn = TransGene.from_dense_batch(batch_attn)
                 elif self.global_model_type == 'BigBird':
                     h_attn = self.self_attn(dense_batch, attention_mask=mask)
                 else:

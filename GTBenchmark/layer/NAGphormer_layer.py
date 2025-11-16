@@ -14,7 +14,7 @@ class NAGphormerLayer(nn.Module):
     def __init__(self, dim_h):
         super(NAGphormerLayer, self).__init__()
 
-        self.num_heads = cfg.gt.attn_heads
+        self.num_heads = cfg.gt.n_heads
         self.dropout = cfg.gt.dropout
         self.attn_dropout = cfg.gt.attn_dropout  
         self.ffn_dim = cfg.gt.ffn_dim

@@ -128,9 +128,7 @@ def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler,monitor, 
                 # global_node_toggle[batch.n_id[:batch.batch_size].cpu()] = ~global_node_toggle[batch.n_id[:batch.batch_size].cpu()]
 
                 with monitor.section("forward"), monitor.profiled_step():
-                    if cfg.model.type == 'NodeFormer' and cfg.gt.use_edge_loss:
-                        pred, true, extra_loss = model(batch)
-                    elif cfg.model.type == 'CoBFormer':
+                    if cfg.gt.use_extra_loss:
                         pred, true, extra_loss = model(batch)
                     else:
                         pred, true = model(batch)
@@ -139,6 +137,8 @@ def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler,monitor, 
                         loss, pred_score = compute_loss(pred, true, cur_epoch)
                     else:
                         loss, pred_score = compute_loss(pred, true)
+                    if cfg.model.type == 'Collaborative':
+                        loss += extra_loss
 
                 _true = true.detach().to('cpu', non_blocking=True)
                 _pred = pred_score.detach().to('cpu', non_blocking=True)
@@ -209,11 +209,16 @@ def eval_epoch(logger, loader, model, split='val'):
 
             if cfg.gnn.head == 'inductive_edge':
                 pred, true, extra_stats = model(batch)
+            elif cfg.gt.use_extra_loss:
+                pred, true, extra_loss = model(batch)
+                extra_stats = {}
             else:
                 pred, true = model(batch)
                 extra_stats = {}
 
             loss, pred_score = compute_loss(pred, true)
+            if cfg.model.type == 'Collaborative':
+                loss += extra_loss
             _true = true.detach().to('cpu', non_blocking=True)
             _pred = pred_score.detach().to('cpu', non_blocking=True)
             
@@ -362,9 +367,9 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
         best_epoch = getattr(np.array(vals), cfg.metric_agg)()
         best_val = perf[1][best_epoch][m]
         best_test = perf[2][best_epoch][m]
-        return best_val, best_test
+        return best_val, best_test, np.mean(full_epoch_times)
     else:
-        return None, None
+        return None, None,None
 
 
 

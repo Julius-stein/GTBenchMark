@@ -24,10 +24,10 @@ def set_cfg_posenc(cfg):
     cfg.posenc_ElstaticSE = CN()
     cfg.posenc_EquivStableLapPE = CN()
     cfg.posenc_GraphormerBias = CN()
-
+    cfg.posenc_LapRaw = CN()
 
     # Common arguments to all PE types.
-    for name in ['posenc_LapPE', 'posenc_SignNet', 'posenc_RWSE', 'posenc_Hetero_RWSE',
+    for name in ['posenc_LapPE', 'posenc_SignNet', 'posenc_RWSE', 'posenc_Hetero_RWSE','posenc_LapRaw',
                  'posenc_Homo_GNN', 'posenc_Hetero_Label','posenc_GraphormerBias',
                  'posenc_Hetero_Metapath', 'posenc_Hetero_Node2Vec', 'posenc_Hetero_TransE',
                  'posenc_Hetero_ComplEx', 'posenc_Hetero_DistMult', 'posenc_Hetero_GNN',

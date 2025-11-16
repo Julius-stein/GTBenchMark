@@ -1,0 +1,79 @@
+out_dir: ./results/test/
+metric_agg: argmax
+metric_best: accuracy
+seed: 0
+num_workers: 0
+dataset:
+  format: PyG-Planetoid
+  name: cora
+  split_mode: standard
+  task: node
+  task_type: classification
+  transductive: true
+metis:
+  drop_rate: 0.0
+  enable: true
+  num_hops: 0
+  online: true
+  patch_num_diff: -1
+  patch_rw_dim: 0
+  patches: 112
+  mode: full
+train:
+  batch_size: 1
+  persistent_workers: false
+  pin_memory: false
+  sampler: full_batch
+  tqdm: true
+val:
+  sampler: full_batch
+  tqdm: true
+mask:
+  name: metis
+model:
+  edge_decoding: dot
+  loss_fun: cross_entropy
+  type: Collaborative
+gnn:
+  mode: "off"
+  layer_type: GCN
+  layers: 1
+  act: relu
+  agg: mean
+  batch_norm: true
+  dim_inner: 64
+  dropout: 0.5
+  head: node
+  layers_post_mp: 1
+  layers_pre_mp: 0
+  normalize_adj: false
+gt:
+  node_encoder_list: [RawEncoder]
+  edge_encoder_list: []
+  input_dropout: 0.0
+  act: relu
+  activation_dropout: 0.0
+  ffn_dim: 64
+  alpha: 0.7
+  attn_dropout: 0.1
+  batch_norm: false
+  dim_hidden: 64
+  dropout: 0.1
+  layer_norm: false
+  layer_type: Transformer
+  layers: 1
+  n_heads: 4
+  tau: 0.7
+  use_patch_attn: true
+  head: inductive_node
+  use_extra_loss: True #definitly True
+optim:
+  base_lr: 0.006
+  clip_grad_norm: false
+  max_epoch: 500
+  num_warmup_epochs: 20
+  optimizer: adamW
+  scheduler: cosine_with_warmup
+  weight_decay: 2e-4
+perf:
+  mode: "off"

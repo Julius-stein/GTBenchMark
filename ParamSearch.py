@@ -71,8 +71,9 @@ def _safe_float(x) -> Optional[float]:
 def parse_search_args():
     gg_args = gg_parse_args()
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--n-trials", type=int, default=30)
-    parser.add_argument("--study-name", type=str, default="subgraph_search")
+    parser.add_argument("--n-trials", type=int, default=36)
+    parser.add_argument("--study-name", type=str, default="SGCora")
+    parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--param-limit", type=int, default=-1,
                         help="Max number of model params allowed, -1 means no limit")
     args2, _ = parser.parse_known_args()
@@ -82,17 +83,30 @@ def parse_search_args():
 
 def _set_search_params(trial: optuna.trial.Trial) -> Dict[str, Any]:
     hp = {}
-    # hp["optim.base_lr"] = trial.suggest_float("optim.base_lr", 1e-5, 1e-3, log=True)
-    # hp["optim.weight_decay"] = trial.suggest_float("optim.weight_decay", 1e-6, 1e-3, log=True)
-    # hp["gt.dim_hidden"] = trial.suggest_categorical("gt.dim_hidden", [64,80, 128,256])
-    # hp["gt.ffn_dim"] = trial.suggest_categorical("gt.ffn_dim", [64, 80,128,256])
-    # hp["gt.layers"] = trial.suggest_int("gt.layers", 1, 6)
-    # hp["gt.attn_heads"] = trial.suggest_categorical("gt.attn_heads", [1,2, 4, 8])
-    # hp["gt.dropout"] = trial.suggest_float("gt.dropout", 0.0, 0.6)
-    # hp["gt.attn_dropout"] = trial.suggest_float("gt.attn_dropout", 0.0, 0.8)
-    # hp["optim.clip_grad_norm_value"] = trial.suggest_float("optim.clip_grad_norm_value", 0.2, 1.0)
+    hp["optim.base_lr"] = trial.suggest_float("optim.base_lr", 5e-4, 1e-2, log=True)
+    hp["optim.weight_decay"] = trial.suggest_float("optim.weight_decay", 1e-5, 5e-4, log=True)
+
+    hp["gt.dim_hidden"] = trial.suggest_categorical("gt.dim_hidden", [16,32,64, 96, 128])
+    hp["gnn.dim_inner"] = hp["gt.dim_hidden"] 
+    # hp["gt.ffn_dim"] = trial.suggest_categorical("gt.ffn_dim", [64, 96, 128])
+
+    hp["gt.layers"] = trial.suggest_int("gt.layers", 1, 3)
+    hp["gt.n_heads"] = trial.suggest_categorical("gt.n_heads", [1,2, 4])
+
+    hp["gt.dropout"] = trial.suggest_float("gt.dropout", 0.0, 0.6)
+    hp["gt.attn_dropout"] = trial.suggest_float("gt.attn_dropout", 0.0, 0.5)
+    # hp["gt.tau"] = trial.suggest_categorical("gt.tau",[0.9,0.7,0.5,0.3])
+    hp["gt.alpha"] = trial.suggest_categorical("gt.alpha",[0.9,0.8,0.7])
+    
+
+    # hp["optim.clip_grad_norm_value"] = trial.suggest_float("optim.clip_grad_norm_value", 0.0, 0.8)
+    hp["use_source"] = trial.suggest_categorical("use_source", [True, False])
+    hp["use_weight"] = trial.suggest_categorical("use_weight", [True, False])
+    hp["use_graph"]  = trial.suggest_categorical("use_graph", [True, False])
+    hp["graph_weight"] = trial.suggest_float("gt.graph_weight",0,1)
+
     hp["perf.mode"] = "off"
-    hp["optim.max_epoch"] = 500
+    hp["optim.max_epoch"] = 200
     hp["out_dir"] = "./results/HpSearch/"
     # hp["gnn.layers_pre_mp"] = trial.suggest_int("gnn.layers_pre_mp", 0, 1)
 
@@ -104,21 +118,21 @@ def _set_search_params(trial: optuna.trial.Trial) -> Dict[str, Any]:
     # hp["train.neighbor_sizes"] = [fanout1, fanout2, fanout3]
     # hp["train.neighbor_sizes"] = [fanout1, fanout2]
 
-    hp["metis.patches"] = trial.suggest_int("metis.patches", 1, 6000,log=True)
+    # hp["metis.patches"] = trial.suggest_int("metis.patches", 2, 6000,log=True)
 
     # ---- 动态 batch size 调整 ----
     # 假设目标总节点量固定（以 arxiv 为例）
-    TARGET_TOTAL_NODES = 32000
-    avg_patch_nodes = 169343 / hp["metis.patches"]
-    dynamic_batch_size = max(1, int(TARGET_TOTAL_NODES / avg_patch_nodes))
+    # TARGET_TOTAL_NODES = 20000
+    # avg_patch_nodes = 169343 / hp["metis.patches"]
+    # dynamic_batch_size = max(1, int(TARGET_TOTAL_NODES / avg_patch_nodes))
     
-    # 可选：强制 batch_size 落在 [4, 128] 区间内
-    dynamic_batch_size = min(dynamic_batch_size, 256)
+    # # 可选：强制 batch_size 落在 [4, 128] 区间内
+    # dynamic_batch_size = min(dynamic_batch_size, 256)
     
-    hp["train.batch_size"] = dynamic_batch_size
+    # hp["train.batch_size"] = dynamic_batch_size
     
-    # ---- 记录方便可视化 ----
-    hp["train.notes"] = f"patches={hp['metis.patches']}, batch={dynamic_batch_size}"
+    # # ---- 记录方便可视化 ----
+    # hp["train.notes"] = f"patches={hp['metis.patches']}, avg_node={avg_patch_nodes},bs={dynamic_batch_size}"
     
     return hp
 
@@ -127,46 +141,115 @@ def _apply_params_to_cfg(cfg_local, hp: Dict[str, Any]):
     for k, v in hp.items():
         _update_cfg_pathlike(cfg_local, k, v)
 
-
-def _single_run_with_cfg(args, trial_tag: str) -> Tuple[Optional[float], Optional[float], str]:
-    # set_cfg(cfg)
-    # load_cfg(cfg, args)
-    custom_set_out_dir(cfg, args.cfg_file, f"{cfg.name_tag}optuna_{trial_tag}", args.gpu)
-    dump_cfg(cfg)
-    torch.set_num_threads(cfg.num_threads)
-    seed_everything(cfg.seed)
-
-    if args.gpu == -1:
-        auto_select_device(strategy="greedy")
-    else:
-        if cfg.device == "auto":
-            cfg.device = f"cuda:{args.gpu}"
-
-    setup_printing()
-    loaders, dataset = create_loader(returnDataset=True)
-    loggers = create_logger()
-    model = create_model(dataset=dataset)
-
-    # 参数总量检查
-    n_params = params_count(model)
-    cfg.params = n_params
-    if args.param_limit > 0 and n_params > args.param_limit:
-        raise TrialPruned(f"Too many params: {n_params} > {args.param_limit}")
-
-    optimizer = create_optimizer(model.named_parameters(), new_optimizer_config(cfg))
-    scheduler = create_scheduler(optimizer, new_scheduler_config(cfg))
-
-    run_id = 0
-    cfg.run_id = run_id
-    custom_set_run_dir(cfg, run_id)
-
-    best_test, best_val = train_dict[cfg.train.mode](loggers, loaders, model, optimizer, scheduler)
+def _get_gpu_memory_used(gpu_id: int = 0) -> int:
+    """
+    返回 GPU 显存使用量（MiB）
+    NVIDIA-SMI 输出示例： "1234MiB"
+    """
     try:
-        agg_runs(cfg.out_dir, cfg.metric_best)
-    except Exception as e:
-        logging.info(f"Failed when trying to aggregate multiple runs: {e}")
+        out = os.popen(f"nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i {gpu_id}").read().strip()
+        return int(out)
+    except:
+        return 99999        # 返回极大值，表示无法检测，则不认为是无人使用
 
-    return best_val, best_test, cfg.run_dir
+
+def _single_run_with_cfg(args, trial_tag: str) -> Tuple[Optional[float], Optional[float], str, float]:
+    """
+    加入 OOM 自动降批次重试逻辑版本。
+    """
+
+    # 先读取 batch_size
+    original_bs = cfg.train.batch_size if hasattr(cfg.train, "batch_size") else None
+
+    # 要用于 OOM 恢复
+    current_bs = original_bs
+
+    # 最多尝试 5 次（bs 每次减半）
+    MAX_RETRY = 5
+    retry = 0
+
+    while True:
+        try:
+            # ====== 常规初始化 ======
+            custom_set_out_dir(cfg, args.cfg_file, f"{cfg.name_tag}optuna_{trial_tag}", args.gpu)
+            dump_cfg(cfg)
+            torch.set_num_threads(cfg.num_threads)
+            seed_everything(cfg.seed)
+
+            if args.gpu == -1:
+                auto_select_device(strategy="greedy")
+            else:
+                if cfg.device == "auto":
+                    cfg.device = f"cuda:{args.gpu}"
+
+            # 应用当前 batch_size（若为 None 不处理）
+            if current_bs is not None:
+                cfg.train.batch_size = current_bs
+
+            setup_printing()
+            loaders, dataset = create_loader(returnDataset=True)
+            loggers = create_logger()
+            model = create_model(dataset=dataset)
+
+            # 参数总量检查
+            n_params = params_count(model)
+            cfg.params = n_params
+            if args.param_limit > 0 and n_params > args.param_limit:
+                raise TrialPruned(f"Too many params: {n_params} > {args.param_limit}")
+
+            optimizer = create_optimizer(model.named_parameters(), new_optimizer_config(cfg))
+            scheduler = create_scheduler(optimizer, new_scheduler_config(cfg))
+
+            run_id = 0
+            cfg.run_id = run_id
+            custom_set_run_dir(cfg, run_id)
+
+            best_test, best_val, avg_epoch = train_dict[cfg.train.mode](
+                loggers, loaders, model, optimizer, scheduler
+            )
+
+            try:
+                agg_runs(cfg.out_dir, cfg.metric_best)
+            except Exception as e:
+                logging.info(f"Failed when trying to aggregate multiple runs: {e}")
+
+            return best_val, best_test, cfg.run_dir, avg_epoch
+
+        except RuntimeError as e:
+            # ================ 捕获 CUDA OOM ==================
+            if "CUDA out of memory" not in str(e):
+                raise e    # 非 OOM 错误 → 正常报错
+
+            # 检查 GPU 是否闲置
+            gpu_used = _get_gpu_memory_used(args.gpu)
+            if gpu_used > 2000:
+                # 显存被占用，不可自调 batch
+                logging.error(f"[OOM DETECTED] but GPU not idle (used {gpu_used} MiB). Pruning trial.")
+                raise TrialPruned("CUDA OOM and GPU is not idle.")
+
+            # GPU 空闲，可以降 batch
+            if current_bs is None:
+                raise TrialPruned("CUDA OOM but no batch_size to reduce.")
+
+            if retry >= MAX_RETRY:
+                raise TrialPruned(f"CUDA OOM after {MAX_RETRY} retries.")
+
+            # 减半 batch size
+            new_bs = max(1, current_bs // 2)
+            if new_bs == current_bs:
+                raise TrialPruned("CUDA OOM and batch_size cannot shrink further.")
+
+            logging.warning(
+                f"[OOM DETECTED] trial={trial_tag}, bs={current_bs} → {new_bs}, retry={retry}/{MAX_RETRY}, "
+                f"gpu_used={gpu_used} MiB"
+            )
+
+            current_bs = new_bs
+            retry += 1
+            torch.cuda.empty_cache()
+            time.sleep(1)
+            # 清理上下文后，自动重试
+            continue
 
 
 def build_objective(args):
@@ -180,7 +263,7 @@ def build_objective(args):
         hp = _set_search_params(trial)
         _apply_params_to_cfg(cfg, hp)
 
-        best_val, best_test, run_dir = _single_run_with_cfg(args, str(trial.number))
+        best_val, best_test, run_dir,avg_time = _single_run_with_cfg(args, str(trial.number))
 
         if best_val is None:
             best_val = -1e12 if direction == "maximize" else 1e12
@@ -188,6 +271,7 @@ def build_objective(args):
         trial.set_user_attr("run_dir", run_dir)
         trial.set_user_attr("best_test", best_test)
         trial.set_user_attr("params_count", getattr(cfg, "params", None))
+        trial.set_user_attr("avg_epoch_time",avg_time)
         for k, v in hp.items():
             trial.set_user_attr(k, v)
         return float(best_val)

@@ -48,7 +48,7 @@ model:
 
 gt:
   layers: 12
-  attn_heads: 32
+  n_heads: 32
   dim_hidden: 768                    # ← 比 ZINC 稍大，分类更稳
   ffn_dim: 768
   dropout: 0.1

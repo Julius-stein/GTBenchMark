@@ -56,7 +56,7 @@ class RawEdgeEncoder(torch.nn.Module):
     """
     def __init__(self,dim_out):
         super().__init__()
-        self.dim_in = cfg.share.dim_in
+        self.dim_in = cfg.share.edge_dim_in
         # self.dim_h = getattr(cfg, ENCODER_NAME).dim_h
         
         self.linear = nn.Linear(self.dim_in, dim_out)

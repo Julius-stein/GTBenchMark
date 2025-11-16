@@ -1,22 +1,24 @@
 out_dir: ./results/test/
 metric_agg: argmax
 metric_best: accuracy
-num_workers: 8
+seed: 0
+num_workers: 0
 dataset:
-  format: PyG-Planetoid
-  name: cora
+  format: OGB
+  name: ogbn-arxiv
   split_mode: standard
   task: node
   task_type: classification
   transductive: true
 metis:
-  drop_rate: 0.3
+  drop_rate: 0.0
   enable: true
-  num_hops: 1
+  num_hops: 0
   online: true
   patch_num_diff: -1
   patch_rw_dim: 0
-  patches: 112
+  patches: 2560
+  mode: full
 train:
   batch_size: 1
   persistent_workers: false
@@ -28,16 +30,17 @@ val:
   tqdm: true
 mask:
   name: metis
-  use_flex: false
 model:
   edge_decoding: dot
   loss_fun: cross_entropy
-  type: GTModel
+  type: Collaborative
 gnn:
-  mode: GPS
-  act: gelu
+  mode: "off"
+  layer_type: GCN
+  # layers: 2
+  act: relu
   agg: mean
-  batchnorm: true
+  batch_norm: true
   dim_inner: 96
   dropout: 0.2
   head: node
@@ -46,24 +49,24 @@ gnn:
   normalize_adj: false
 gt:
   node_encoder_list: [RawEncoder]
-  edge_encoder_list: [Dummyedge]
+  edge_encoder_list: []
   input_dropout: 0.0
   act: relu
-  attn_type: MPAttention
   activation_dropout: 0.0
-  ffn_dim: 128
+  ffn_dim: 96
   alpha: 0.7
   attn_dropout: 0.5
   batch_norm: false
   dim_hidden: 96
   dropout: 0.5
   layer_norm: false
-  layer_type: GCN+Transformer
+  layer_type: Transformer
   layers: 2
-  attn_heads: 2
+  n_heads: 2
   tau: 0.3
   use_patch_attn: true
   head: inductive_node
+  use_extra_loss: True #definitly True
 optim:
   base_lr: 0.0005
   clip_grad_norm: true

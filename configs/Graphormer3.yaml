@@ -49,7 +49,7 @@ gt:
   dropout: 0.1    
   attn_dropout: 0.3
   ffn_dim: 1024
-  attn_heads: 8
+  n_heads: 8
 
   input_dropout: 0.0
   

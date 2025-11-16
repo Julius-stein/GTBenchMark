@@ -170,14 +170,14 @@ class HeteroGNNEncoder(torch.nn.Module):
                                            concat=True, add_self_loops=False)
                         for edge_type in self.metadata[1]
                     })
-                    norm_dim = cfg.gnn.attn_heads * cfg.gnn.dim_inner
+                    norm_dim = cfg.gnn.n_heads * cfg.gnn.dim_inner
                 elif i < cfg.gnn.layers_mp - 1:
                     conv = HeteroConv({
                         edge_type: GATConv(self.heads * self.dim_hidden, self.dim_hidden, heads=self.heads,
                                            concat=True, add_self_loops=False)
                         for edge_type in self.metadata[1]
                     })
-                    norm_dim = cfg.gnn.attn_heads * cfg.gnn.dim_inner
+                    norm_dim = cfg.gnn.n_heads * cfg.gnn.dim_inner
                 else:
                     conv = HeteroConv({
                         edge_type: GATConv(self.heads * self.dim_hidden, self.dim_hidden, heads=self.heads,

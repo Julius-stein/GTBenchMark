@@ -94,6 +94,8 @@ def extended_cfg(cfg):
     cfg.gnn.mode = "off"
     cfg.gnn.layer_type = "GCN"
 
+    cfg.gnn.layers = 0
+
     
     cfg.model.loss_fun_weight = []
 

@@ -44,7 +44,7 @@ gt:
   layer_type: Transformer
   attn_type: GeneralAttention
   layers: 12
-  attn_heads: 8
+  n_heads: 8
   ffn_dim: 128
   act : relu
   head: san_graph

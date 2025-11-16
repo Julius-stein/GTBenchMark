@@ -3,7 +3,7 @@ metric_agg: argmax
 metric_best: accuracy
 num_workers: 0
 seed: 42
-# device: cuda:1
+device: cuda:1
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: OGB
@@ -13,44 +13,48 @@ dataset:
   task_type: classification
   transductive: true
   add_self_loops: True
+mask:
+  transadj: True
 metis:
-  patches: 3000
+  patches: 4000
+  cut_type: "edge-cut"
+  mode: subgraph
 train:
   enable_ckpt: false
   eval_period: 5
   mode: custom
-  batch_size: 256
+  batch_size: 128
   tqdm: false
-  sampler: cluster
+  sampler: full_batch
   persistent_workers: True
   pin_memory: True
   neighbor_sizes: [25,10]
 val:
-  sampler: cluster
+  sampler: full_batch
 gnn:
   mode: GPS
   layer_type: GAT
   act: relu
   agg: add
   batchnorm: true
-  dim_inner: 128
+  dim_inner: 64
   dropout: 0.3
   layers_post_mp: 1
   layers_pre_mp: 0
   normalize_adj: false
 
 gt:
-  attn_dropout: 0.2
+  attn_dropout: 0.5
   batch_norm: false
-  dim_hidden: 256
+  dim_hidden: 64
   dropout: 0.5
   residual: true 
   layer_norm: true
   layer_type: Transformer
   attn_type: GeneralAttention
-  layers: 4
-  attn_heads: 8
-  ffn_dim: 1024
+  layers: 2
+  n_heads: 8
+  ffn_dim: 256
   head: node
   encoder_type : cascade
   node_encoder_list: [RawEncoder]

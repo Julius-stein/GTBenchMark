@@ -37,7 +37,7 @@ gt:
   layer_type: NodeFormerConv
   attn_type: LinearAttn
   layers: 3
-  attn_heads: 1
+  n_heads: 1
   ffn_dim: 192
   head: node
   encoder_type : cascade

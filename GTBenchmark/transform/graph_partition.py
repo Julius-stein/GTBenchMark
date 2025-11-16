@@ -6,6 +6,9 @@ import numpy as np
 import networkx as nx
 import re
 import pymetis
+import torch_geometric.utils as tg_utils
+
+from torch_geometric.data import Batch, InMemoryDataset
 from GTBenchmark.graphgym.config import cfg
 
 def random_walk(A, n_iter):
@@ -44,6 +47,7 @@ def k_hop_subgraph(edge_index, num_nodes, num_hops, is_directed=False):
     hop_indicator = hop_indicator.T  # N x N
     node_mask = (hop_indicator >= 0)  # N x N dense mask matrix
     return node_mask
+
 
 
 def random_subgraph(g, n_patches, num_hops=1):
@@ -247,3 +251,79 @@ class GraphPartitionTransform(object):
         return data
 
 
+
+
+
+
+class MiniBatchFromPartition(InMemoryDataset):
+    """
+    从 GraphPartitionTransform 处理后的 Data 对象直接生成可被 DataLoader 使用的 mini-batch Dataset。
+    不区分 key 类型，能下采样的下采样，不能下采样的保留原样。
+    """
+
+    def __init__(self, dataset, skip_empty=True):
+        """
+        Args:
+            part_data (Data): GraphPartitionTransform 返回的 Data 对象（含 subgraphs_* 与 mask）
+            skip_empty (bool): 是否跳过空子图
+        """
+        super().__init__(".")
+        self.part_data = dataset[0]
+        self.skip_empty = skip_empty
+
+        datalist = self._extract_subgraphs(self.part_data)
+        self.data, self.slices = self.collate(datalist)
+
+    def _extract_subgraphs(self, part_data):
+        assert hasattr(part_data, "subgraphs_batch"), \
+            "part_data 必须包含 subgraphs_batch / subgraphs_nodes_mapper / subgraphs_edges_mapper / mask 字段"
+
+        num_nodes = part_data.num_nodes
+        num_edges = part_data.edge_index.size(1)
+        n_patches = int(part_data.mask.view(-1).numel())
+
+        # 重建掩码矩阵
+        node_masks = torch.zeros((n_patches, num_nodes), dtype=torch.bool, device=part_data.edge_index.device)
+        edge_masks = torch.zeros((n_patches, num_edges), dtype=torch.bool, device=part_data.edge_index.device)
+        node_masks[part_data.subgraphs_batch, part_data.subgraphs_nodes_mapper] = True
+        edge_masks[part_data.subgraphs_batch, part_data.subgraphs_edges_mapper] = True
+
+        datalist = []
+        for pid in range(n_patches):
+            node_idx = torch.where(node_masks[pid])[0]
+            edge_idx = torch.where(edge_masks[pid])[0]
+            if self.skip_empty and (node_idx.numel() == 0 or edge_idx.numel() == 0):
+                continue
+
+            sub_edge_index = part_data.edge_index[:, edge_idx]
+            sub_edge_index, _ = tg_utils.subgraph(node_idx, sub_edge_index, relabel_nodes=True)
+            sub_kwargs = {"edge_index": sub_edge_index}
+
+            # 无差别复制所有属性：能下采样的就下采样，否则原样保留
+            for key, val in part_data.items():
+                if key in ("edge_index", "subgraphs_batch", "subgraphs_nodes_mapper",
+                           "subgraphs_edges_mapper", "combined_subgraphs", "mask"):
+                    continue  # 这些是划分结构性字段，不属于原始特征
+
+                if isinstance(val, torch.Tensor):
+                    # 节点级或边级张量自动下采样
+                    if val.size(0) == num_nodes:
+                        sub_kwargs[key] = val[node_idx]
+                    elif val.size(0) == num_edges:
+                        sub_kwargs[key] = val[edge_idx]
+                    else:
+                        sub_kwargs[key] = val.clone()
+                else:
+                    # 非 tensor，直接保留
+                    sub_kwargs[key] = val
+
+            sub = Data(**sub_kwargs)
+            sub.patch_id = pid
+            sub.num_nodes = int(node_idx.numel())
+            datalist.append(sub)
+
+        return datalist
+
+    def len(self):
+        any_key = next(iter(self.slices))
+        return int(self.slices[any_key].numel() - 1)

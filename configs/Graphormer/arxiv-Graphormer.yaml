@@ -56,7 +56,7 @@ gt:
   layer_type: Transformer
   attn_type: GeneralAttention
   layers: 2
-  attn_heads: 8
+  n_heads: 8
   ffn_dim: 256
   head: minibatch_node
   encoder_type : cascade
@@ -64,11 +64,9 @@ gt:
   edge_encoder_list: [DummyEdge]
   input_dropout: 0.1
   activation_dropout: 0.1
-  #,GraphormerBias
   prepend_norm: True
   act : relu
-  # use_flex: True
-  # flex_block_size: 19
+
 gnn:
   mode: "off"
   dropout: 0.2

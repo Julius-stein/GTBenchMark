@@ -11,9 +11,8 @@ class GraphTransformerLayer(nn.Module):
     def __init__(self, dim_h):
         super().__init__()
         cfg_gt = cfg.gt  # 缓存，少一次全局查找
-        cfg.share.can_flex = (cfg_gt.attn_dropout == 0.0) and cfg_gt.use_flex
         self.out_channels = dim_h
-        self.num_heads = cfg_gt.attn_heads
+        self.num_heads = cfg_gt.n_heads
         self.residual = cfg_gt.residual
         self.prepend_norm = cfg_gt.prepend_norm
 

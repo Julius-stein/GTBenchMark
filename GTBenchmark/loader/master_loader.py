@@ -36,14 +36,15 @@ from GTBenchmark.transform.posenc_stats import compute_posenc_stats
 from GTBenchmark.transform.task_preprocessing import task_specific_preprocessing
 from GTBenchmark.transform.transforms import (pre_transform_in_memory,
                                            typecast_x, concat_x_and_pos,
-                                           clip_graphs_to_size)
+                                           clip_graphs_to_size,move_node_feat_to_x)
 from GTBenchmark.transform.multihop_prep import generate_multihop_adj
 from GTBenchmark.transform.dist_transforms import (add_dist_features, add_reverse_edges,
                                                  add_self_loops, effective_resistances, 
                                                  effective_resistance_embedding,
                                                  effective_resistances_from_embedding)
-from GTBenchmark.transform.graph_partition import GraphPartitionTransform
+from GTBenchmark.transform.graph_partition import GraphPartitionTransform, MiniBatchFromPartition
 from GTBenchmark.transform.reorder import reorder_pyg_dataset
+from GTBenchmark.transform.graph_partitionV2 import GraphPartitionTransformV2,GraphPartitionDataset
 
 from torch_geometric.datasets import (Actor, GNNBenchmarkDataset, Planetoid,
                                       TUDataset, WebKB, WikipediaNetwork, ZINC)
@@ -469,15 +470,17 @@ def load_dataset_master(format, name, dataset_dir):
         start = time.perf_counter()
         logging.info(f"Precomputing graph partition transform ...")
 
-        # pre_transform_in_memory(dataset, GraphPartitionTransform(n_patches=cfg.metis.patches,
-        #                                                          metis=cfg.metis.enable,
-        #                                                          drop_rate=cfg.metis.drop_rate,
-        #                                                          num_hops=cfg.metis.num_hops,
-        #                                                          is_directed=False,
-        #                                                          patch_rw_dim=cfg.metis.patch_rw_dim,
-        #                                                          patch_num_diff=cfg.metis.patch_num_diff),
-        #                         show_progress=True)
-        dataset = ClusterData(dataset[0], num_parts=cfg.metis.patches, recursive=True)
+        transform = GraphPartitionTransformV2(n_patches=cfg.metis.patches,
+                                            algo='metis' if cfg.metis.enable else 'random',
+                                            drop_rate=cfg.metis.drop_rate,
+                                            num_hops=cfg.metis.num_hops,
+                                            cut_type=cfg.metis.cut_type,
+                                            patch_rw_dim=cfg.metis.patch_rw_dim,
+                                            patch_num_diff=cfg.metis.patch_num_diff,
+                                            mode= cfg.metis.mode
+                                            )
+        dataset = transform(dataset[0])
+
         
         elapsed = time.perf_counter() - start
         timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
@@ -525,7 +528,10 @@ def load_dataset_master(format, name, dataset_dir):
 
     # # Verify or generate dataset train/val/test splits
     prepare_splits(dataset)
-    dataset.data['extra_loss'] = torch.Tensor([0.0])
+    # dataset.data['extra_loss'] = torch.Tensor([0.0])
+    for data in dataset:
+        data.extra_loss = torch.tensor([0.0])
+
 
     # # Precompute in-degree histogram if needed for PNAConv.
     # if cfg.gt.layer_type.startswith('PNA') and len(cfg.gt.pna_degrees) == 0:
@@ -780,7 +786,10 @@ def preformat_ogbn(dataset_dir, name):
 
     if name == 'ogbn-proteins':
         pre_transform_in_memory(dataset, partial(move_node_feat_to_x))
-        pre_transform_in_memory(dataset, partial(typecast_x, type_str='float'))
+        pre_transform_in_memory(dataset, partial(typecast_x, type_str='long'))
+        
+        if cfg.dataset.add_self_loops:
+            pre_transform_in_memory(dataset, partial(add_self_loops))
 
     data = dataset[0]
     data.y = data.y.squeeze(-1).to(torch.long)

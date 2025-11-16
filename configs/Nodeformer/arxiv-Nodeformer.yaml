@@ -56,7 +56,7 @@ gt:
   layer_type: NodeFormerConv
   attn_type: LinearAttn
   layers: 2
-  attn_heads: 8
+  n_heads: 8
   ffn_dim: 80
   head: inductive_node
   encoder_type: cascade

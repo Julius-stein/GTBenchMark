@@ -12,7 +12,7 @@ from GTBenchmark.graphgym.config import cfg
 #     def __init__(self, dim_h):
         
 #         super().__init__()
-#         self.num_heads = cfg.gt.attn_heads
+#         self.num_heads = cfg.gt.n_heads
 #         self.dropout = cfg.gt.dropout
 #         self.attn_dropout_rate = cfg.gt.attn_dropout
 #         self.ffn_dim = cfg.gt.ffn_dim

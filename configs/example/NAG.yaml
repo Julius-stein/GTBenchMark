@@ -36,7 +36,7 @@ model:
 gt:
   layer_type: NAGphormer_Layer
   layers: 1
-  attn_heads: 8
+  n_heads: 8
   dim_hidden: 128  
   dropout: 0.1     # global transformer dropout
   attn_dropout: 0.1

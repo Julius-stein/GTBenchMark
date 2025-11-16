@@ -35,7 +35,7 @@ model:
 
 gt:
   layers: 12
-  attn_heads: 8
+  n_heads: 8
   dim_hidden: 96
   dropout: 0.5
   attn_dropout: 0.5

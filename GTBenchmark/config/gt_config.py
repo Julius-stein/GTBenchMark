@@ -23,7 +23,7 @@ def set_cfg_gt(cfg):
     cfg.gt.layers = 3
 
     # Number of attention heads in the Graph Transformer
-    cfg.gt.attn_heads = 8
+    cfg.gt.n_heads = 8
 
     # Size of the hidden node and edge representation
     cfg.gt.dim_hidden = 64
@@ -73,34 +73,33 @@ def set_cfg_gt(cfg):
 
     cfg.gt.encoder_type = 'concatenate'
 
+    cfg.gt.use_extra_loss = False
     # BigBird model/GPS-BigBird layer.
-    # cfg.gt.bigbird = CN()
+    cfg.gt.bigbird = CN()
 
-    # cfg.gt.bigbird.attention_type = "block_sparse"
+    cfg.gt.bigbird.attention_type = "block_sparse"
 
-    # cfg.gt.bigbird.chunk_size_feed_forward = 0
+    cfg.gt.bigbird.chunk_size_feed_forward = 0
 
-    # cfg.gt.bigbird.is_decoder = False
+    cfg.gt.bigbird.is_decoder = False
 
-    # cfg.gt.bigbird.add_cross_attention = False
+    cfg.gt.bigbird.add_cross_attention = False
 
-    # cfg.gt.bigbird.hidden_act = "relu"
+    cfg.gt.bigbird.hidden_act = "relu"
 
-    # cfg.gt.bigbird.max_position_embeddings = 128
+    cfg.gt.bigbird.max_position_embeddings = 128
 
-    # cfg.gt.bigbird.use_bias = False
+    cfg.gt.bigbird.use_bias = False
 
-    # cfg.gt.bigbird.num_random_blocks = 3
+    cfg.gt.bigbird.num_random_blocks = 3
 
-    # cfg.gt.bigbird.block_size = 3
+    cfg.gt.bigbird.block_size = 3
 
-    # cfg.gt.bigbird.layer_norm_eps = 1e-6
+    cfg.gt.bigbird.layer_norm_eps = 1e-6
 
     cfg.gt.ffn_dim = 0
     cfg.gt.layers_post_gt = 1
 
-    cfg.gt.use_flex = False
-    cfg.gt.flex_block_size = 64
     # cfg.gt.use_graph_token = False
 
     # NodeFormer
@@ -118,3 +117,27 @@ def set_cfg_gt(cfg):
     cfg.gt.projection_matrix_type = 'a'
 
     cfg.gt.tau = 1.0   # also used by CoBFormer
+
+    # CoBformer
+    cfg.gt.use_patch_attn = True
+    cfg.gt.alpha = 0.1   # also used by Difformer, cannot be 0
+    
+    # DIFFormer
+    cfg.gt.kernel = "simple"
+    cfg.gt.use_source = True
+
+    # SGFormer
+    cfg.gt.use_weight = True
+
+    cfg.gt.use_residual = True
+
+    cfg.gt.use_act = True
+
+    cfg.gt.use_graph = True
+
+    cfg.gt.graph_weight = 0.8
+
+    cfg.gt.aggregate = "add"
+
+    # DeGTA
+    cfg.gt.K = 4

@@ -47,7 +47,7 @@ gt:
   layer_type: Exphormer
   attn_type: ExphormerAttention
   layers: 4
-  attn_heads: 2
+  n_heads: 2
   ffn_dim: 160
   head: node
   encoder_type : cascade

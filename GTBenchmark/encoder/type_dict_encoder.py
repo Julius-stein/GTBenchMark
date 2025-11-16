@@ -84,6 +84,9 @@ class TypeDictNodeEncoder(torch.nn.Module):
         super().__init__()
  
         num_types = cfg.dataset.node_encoder_num_types
+        if num_types == 0:
+            num_types = cfg.share.num_types
+
         if num_types < 1:
             raise ValueError(f"Invalid 'node_encoder_num_types': {num_types}")
 

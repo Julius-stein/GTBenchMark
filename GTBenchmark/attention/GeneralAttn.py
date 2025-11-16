@@ -8,14 +8,13 @@ from torch.nn.attention import sdpa_kernel, SDPBackend
 from GTBenchmark.graphgym.config import cfg
 from contextlib import nullcontext
 from typing import Optional
-from torch.nn.attention.flex_attention import flex_attention as  _flex_attention
+from GTBenchmark.transform.graph2dense import to_dense_adj
 _BACKEND_MAP = {
     "auto":      None,
     "cudnn":     SDPBackend.CUDNN_ATTENTION,
     "flash":     SDPBackend.FLASH_ATTENTION,
     "efficient": SDPBackend.EFFICIENT_ATTENTION,
     "math":      SDPBackend.MATH,
-    "flex":      "flex",
 }
 from GTBenchmark.graphgym.register import register_layer
 
@@ -44,8 +43,6 @@ def _to_additive_from_full_mask(full_mask: Tensor, Np: int) -> Tensor:
 class GeneralAttn(nn.Module):
     """
     - return_attn_weights=True 时固定走 math 分支并返回 (out, attn)
-    - Flex: 用 score_mod 注入结构偏置 E 与 additive（score_mod 内无条件分支）
-            同时 **传入 block_mask**（从 batch.flex_block_mask 读取） // NEW
     - SDPA: 融合成 additive mask -> scaled_dot_product_attention
     - Math: 纯手算（scores/softmax/dropout），带权重路径共用
     """
@@ -56,7 +53,7 @@ class GeneralAttn(nn.Module):
         dropout_p: float = 0.0,
         x_name: str = 'x',
         bias_name: str = 'attn_bias',     # [B*H,Np,Np] 或 [B,H,Np,Np]
-        backend: str = "auto",            # auto / flex / efficient / flash / cudnn / math
+        backend: str = "auto",            # auto / efficient / flash / cudnn / math
         return_attn_weights: bool = False
     ):
         super().__init__()
@@ -74,18 +71,8 @@ class GeneralAttn(nn.Module):
             raise ValueError(f"Unknown backend '{backend}', valid keys: {list(_BACKEND_MAP)}")
         self.backend = backend
 
-        # ---- 静态确定后端，减少运行期分支 ----
-        cfg.share.can_flex = (self.dropout_p == 0.0) and cfg.gt.use_flex
-        if self.backend == "auto":
-            self._use_flex = cfg.share.can_flex 
-        else:
-            self._use_flex = False
-
-        if self._use_flex or self.backend == "math":
-            self._sdpa_enum = None
-        else:
-            chosen = self.backend if self.backend != "auto" else "efficient"
-            self._sdpa_enum = _BACKEND_MAP.get(chosen, SDPBackend.EFFICIENT_ATTENTION)
+        chosen = self.backend if self.backend != "auto" else "efficient"
+        self._sdpa_enum = _BACKEND_MAP.get(chosen, SDPBackend.EFFICIENT_ATTENTION)
 
         self.in_proj  = nn.Linear(embed_dim, 3 * embed_dim, bias=True)
         self.out_proj = nn.Linear(embed_dim, embed_dim)
@@ -105,6 +92,8 @@ class GeneralAttn(nn.Module):
                 raise RuntimeError(f"attn_bias size[0]={attn_bias.size(0)} != B*H={B*H}")
             E = attn_bias.view(B, H, Np, Np)
         elif attn_bias.dim() == 4:
+            if attn_bias.size(1)==attn_bias.size(2):
+                attn_bias = attn_bias.permute(0,3,1,2)
             if attn_bias.size(0) != B or attn_bias.size(1) != H:
                 raise RuntimeError(f"attn_bias shape={tuple(attn_bias.shape)} expect (B,H,Np,Np)")
             E = attn_bias
@@ -134,32 +123,6 @@ class GeneralAttn(nn.Module):
             scores = scores + fused_bias
         return scores
 
-    # ---- NEW: 把 block_mask 也传进来 ----
-    def flex_attention(self, Q, K, V, fused_bias: Optional[Tensor], block_mask=None) -> Tensor:
-
-        H = self.num_heads
-        B, _, Np, _ = Q.shape
-
-        if fused_bias is None:
-            def noop(score, b, h, q_idx, k_idx):
-                return score
-            return _flex_attention(Q, K, V,
-                                   score_mod=noop,
-                                   block_mask=block_mask,  # <<< 传入
-                                   scale=self._scale,
-                                   kernel_options=None)
-
-        fused_flat = fused_bias.reshape(-1)
-
-        def score_mod(score, b, h, q_idx, k_idx):
-            lin = (((b * H) + h) * Np + q_idx) * Np + k_idx
-            return score + fused_flat[lin]
-
-        return _flex_attention(Q, K, V,
-                               score_mod=score_mod,
-                               block_mask=block_mask,      # <<< 传入
-                               scale=self._scale,
-                               kernel_options=None)
 
     # ------------- 公共准备步骤 -------------
     def _prep_qkv_bias(self, batch, mask: Optional[Tensor]):
@@ -181,47 +144,44 @@ class GeneralAttn(nn.Module):
         
         raw_bias = getattr(batch, self.bias_name, None)
         E = self._reshape_bias(raw_bias, B, H, Np) if raw_bias is not None else None
-        #在这个地方就应该分支flex了
-        
-        if self._use_flex:
-            block_mask = getattr(batch, "flex_block_mask", None)  # <<< NEW: 读取 Basemask 的 BlockMask
-            out = self.flex_attention(Q, K, V, E, block_mask=block_mask)
+    
+        # add = self._get_cached_additive(batch, mask, Np)  # [B,1,Np,Np] or None
+        if E is None and mask is None:
+            fused_bias = None
         else:
-            add = self._get_cached_additive(batch, mask, Np)  # [B,1,Np,Np] or None
-            if E is None and add is None:
-                fused_bias = None
+            if mask is not None:
+                add = mask.expand(B, H, Np, Np)
+                fused_bias = add if E is None else (E + add)
+                fused_bias = fused_bias.contiguous()
             else:
-                if add is not None:
-                    add = add.expand(B, H, Np, Np)
-                    fused_bias = add if E is None else (E + add)
+                fused_bias = E
+                fused_bias = fused_bias.contiguous()
+        if self.backend != "math":
+            try:
+                ctx = sdpa_kernel([self._sdpa_enum]) if self._sdpa_enum is not None else nullcontext()
+                with ctx:
+                    out = scaled_dot_product_attention(
+                        Q, K, V,
+                        attn_mask=fused_bias,   # [B,H,Np,Np] or None
+                        dropout_p=self.dropout_p,
+                        is_causal=False,
+                        scale=self._scale,
+                    )
+            except RuntimeError as e:
+                if "No available kernel" in str(e):
+                    scores = self._build_scores(Q, K, fused_bias) * self._scale
+                    attn = torch.softmax(scores, dim=-1)
+                    if self._drop is not None and self.training:
+                        attn = self._drop(attn)
+                    out = torch.matmul(attn, V)
                 else:
-                    fused_bias = E
-            if self.backend != "math":
-                try:
-                    ctx = sdpa_kernel([self._sdpa_enum]) if self._sdpa_enum is not None else nullcontext()
-                    with ctx:
-                        out = scaled_dot_product_attention(
-                            Q, K, V,
-                            attn_mask=fused_bias,   # [B,H,Np,Np] or None
-                            dropout_p=self.dropout_p,
-                            is_causal=False,
-                            scale=self._scale,
-                        )
-                except RuntimeError as e:
-                    if "No available kernel" in str(e):
-                        scores = self._build_scores(Q, K, fused_bias) * self._scale
-                        attn = torch.softmax(scores, dim=-1)
-                        if self._drop is not None and self.training:
-                            attn = self._drop(attn)
-                        out = torch.matmul(attn, V)
-                    else:
-                        raise
-            else:
-                scores = self._build_scores(Q, K, fused_bias) * self._scale
-                attn = torch.softmax(scores, dim=-1)
-                if self._drop is not None and self.training:
-                    attn = self._drop(attn)
-                out = torch.matmul(attn, V)
+                    raise
+        else:
+            scores = self._build_scores(Q, K, fused_bias) * self._scale
+            attn = torch.softmax(scores, dim=-1)
+            if self._drop is not None and self.training:
+                attn = self._drop(attn)
+            out = torch.matmul(attn, V)
 
 
         out = out.transpose(1, 2).contiguous().view(B, Np, H * D)

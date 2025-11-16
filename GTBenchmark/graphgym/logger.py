@@ -223,7 +223,10 @@ def infer_task():
         if num_label <= 2:
             task_type = 'classification_binary'
         else:
-            task_type = 'classification_multi'
+            if any(k in cfg.dataset.name for k in ["protein", "mol", "ppi", "voc", "coco"]) or "multi_label" in cfg.dataset.task_type:
+                return "classification_multilabel"
+            else:
+                task_type = 'classification_multi'
     else:
         task_type = cfg.dataset.task_type
     return task_type

@@ -44,7 +44,7 @@ gt:
   edge_encoder_list: ['TypeDictEdge']
   attn_type: GeneralAttention
   layers: 10
-  attn_heads: 8
+  n_heads: 8
   dim_hidden: 256  
   dropout: 0.2     # global transformer dropout
   attn_dropout: 0.2

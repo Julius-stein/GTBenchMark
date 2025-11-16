@@ -20,7 +20,7 @@ class NAGphormer(nn.Module):
         
         self.hidden_dim = cfg.gt.dim_hidden
         self.ffn_dim = cfg.gt.ffn_dim
-        self.num_heads = cfg.gt.attn_heads
+        self.num_heads = cfg.gt.n_heads
         self.n_layers = cfg.gt.layers
         self.dropout_rate = cfg.gt.dropout
         self.attention_dropout_rate = cfg.gt.attn_dropout

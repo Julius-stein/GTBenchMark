@@ -164,7 +164,7 @@ class GraphormerEncoder(torch.nn.Sequential):
                 cfg.posenc_GraphormerBias.use_graph_token
             ),
             BiasEncoderDense(
-                cfg.gt.attn_heads,
+                cfg.gt.n_heads,
                 cfg.posenc_GraphormerBias.num_spatial_types,
                 cfg.dataset.edge_encoder_num_types,
                 edge_type="multi_hop",

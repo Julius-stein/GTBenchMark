@@ -46,7 +46,7 @@ gt:
   layer_type: Transformer
   attn_type: MPAttention
   layers: 2
-  attn_heads: 8
+  n_heads: 8
   ffn_dim: 80
   head: inductive_node
   encoder_type : cascade

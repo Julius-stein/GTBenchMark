@@ -148,11 +148,11 @@ class HomoGNNEncoder(torch.nn.Module):
                 if i == 0:
                     conv = GATConv(self.dim_hidden, self.dim_hidden, heads=self.heads,
                                            concat=True, add_self_loops=False)
-                    norm_dim = cfg.gnn.attn_heads * cfg.gnn.dim_inner
+                    norm_dim = cfg.gnn.n_heads * cfg.gnn.dim_inner
                 elif i < cfg.gnn.layers_mp - 1:
                     conv = GATConv(self.heads * self.dim_hidden, self.dim_hidden, heads=self.heads,
                                            concat=True, add_self_loops=False)
-                    norm_dim = cfg.gnn.attn_heads * cfg.gnn.dim_inner
+                    norm_dim = cfg.gnn.n_heads * cfg.gnn.dim_inner
                 else:
                     conv = GATConv(self.heads * self.dim_hidden, self.dim_hidden, heads=self.heads,
                                            concat=False, add_self_loops=True)

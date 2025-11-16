@@ -57,6 +57,22 @@ def concat_x_and_pos(data):
     data.x = torch.cat((data.x, data.pos), 1)
     return data
 
+def move_node_feat_to_x(data):
+    """For ogbn-proteins, move the attribute node_species to attribute x."""
+    species_raw = data.node_species.squeeze(-1).long()  # [num_nodes]
+    # 找出唯一的物种 ID 并建立映射表
+    unique_species = torch.unique(species_raw)
+    id_map = {int(v.item()): i for i, v in enumerate(unique_species)}
+    # 将每个节点的原始ID映射为连续索引
+    species_idx = torch.tensor(
+        [id_map[int(v.item())] for v in species_raw],
+        dtype=torch.long
+    )
+    # 写回到 data.x，并附带 num_species
+    data.x = species_idx.unsqueeze(-1)  # [num_nodes, 1]
+    data.pop("node_species")
+
+    return data
 
 def clip_graphs_to_size(data, size_limit=5000):
     if hasattr(data, 'num_nodes'):

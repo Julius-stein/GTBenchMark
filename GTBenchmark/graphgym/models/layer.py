@@ -299,15 +299,15 @@ class GeneralMultiLayer(nn.Module):
                  dim_in,
                  dim_out,
                  dim_inner=None,
-                 final_act=True,
+                #  has_act=True,
                  **kwargs):
         super(GeneralMultiLayer, self).__init__()
-        dim_inner = dim_in if dim_inner is None else dim_inner
+        dim_inner = dim_out if dim_inner is None else dim_inner
         for i in range(num_layers):
             d_in = dim_in if i == 0 else dim_inner
             d_out = dim_out if i == num_layers - 1 else dim_inner
-            has_act = final_act if i == num_layers - 1 else True
-            layer = GeneralLayer(name, d_in, d_out, has_act, **kwargs)
+            # has_act = final_act if i == num_layers - 1 else True
+            layer = GeneralLayer(name, d_in, d_out, **kwargs)
             self.add_module('Layer_{}'.format(i), layer)
 
     def forward(self, batch):
@@ -374,7 +374,7 @@ class MLP(nn.Module):
                                   dim_in,
                                   dim_inner,
                                   dim_inner,
-                                  final_act=True))
+                                  **kwargs))
             layers.append(Linear(dim_inner, dim_out, bias))
         else:
             layers.append(Linear(dim_in, dim_out, bias))

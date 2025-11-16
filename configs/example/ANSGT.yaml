@@ -42,7 +42,7 @@ gt:
   edge_encoder_list: []
   attn_type: TorchFullAttention
   layers: 3
-  attn_heads: 8
+  n_heads: 8
   dim_hidden: 256  
   dropout: 0.2     # global transformer dropout
   attn_dropout: 0.2
