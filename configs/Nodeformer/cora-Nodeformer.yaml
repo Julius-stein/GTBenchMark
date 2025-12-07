@@ -1,7 +1,7 @@
 out_dir: ./results/test
 metric_agg: argmax
 metric_best: accuracy
-seed: 0
+seed: 42
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: PyG-Planetoid

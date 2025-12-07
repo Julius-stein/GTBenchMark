@@ -7,12 +7,19 @@ from tqdm import tqdm
 from typing import Callable, List, Optional
 from sklearn.model_selection import train_test_split
 from torch_geometric.data import (
+    Data,
     HeteroData,
     InMemoryDataset,
     download_url,
     extract_zip,
 )
-from torch_geometric.utils import index_to_mask
+from torch_geometric.utils import index_to_mask, to_undirected
+
+import gzip
+import shutil
+import os
+import time
+
 
 def get_categorical_features(feat_df, cat_cols):
     one_hot_encoded_df = pd.get_dummies(feat_df[cat_cols], columns=cat_cols)
@@ -306,3 +313,147 @@ class PokecDataset(InMemoryDataset):
             data = self.pre_transform(data)
 
         torch.save(data, self.processed_paths[0])
+
+
+POKEC_URLS = {
+    "profiles": "https://snap.stanford.edu/data/soc-pokec-profiles.txt.gz",
+    "relations": "https://snap.stanford.edu/data/soc-pokec-relationships.txt.gz",
+}
+
+
+def download_file(url, out_path):
+    os.makedirs(osp.dirname(out_path), exist_ok=True)
+    if osp.exists(out_path):
+        print(f"[INFO] Using existing file {out_path}")
+        return
+
+    import urllib.request
+    print(f"[INFO] Downloading {url}")
+    urllib.request.urlretrieve(url, out_path)
+
+
+def gunzip(src, dst):
+    with gzip.open(src, 'rb') as f_in:
+        with open(dst, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+
+
+POKEC_PROFILE_URL = "https://snap.stanford.edu/data/soc-pokec-profiles.txt.gz"
+POKEC_REL_URL     = "https://snap.stanford.edu/data/soc-pokec-relationships.txt.gz"
+
+class PokecHomoSGDataset(InMemoryDataset):
+    """
+    SGFormer 对齐版本的 Pokec-homo 数据集（InMemoryDataset）
+    - 特征处理与 SGFormer 保持一致
+    - 仅使用 SNAP 原始 60 列
+    - 文本列用 boolean exist 代替（SGFormer 使用的方式）
+    """
+
+    def __init__(self, root, transform=None, pre_transform=None):
+        super().__init__(root, transform, pre_transform)
+        self.data, self.slices = torch.load(self.processed_paths[0])
+
+    # ------------------------------------------------------------------
+    @property
+    def raw_file_names(self):
+        return ["soc-pokec-profiles.txt.gz", "soc-pokec-relationships.txt.gz"]
+
+    @property
+    def processed_file_names(self):
+        return ["data.pt"]
+
+    # ------------------------------------------------------------------
+    def download(self):
+        print("[Pokec] Downloading raw files...")
+        download_url(POKEC_PROFILE_URL, self.raw_dir)
+        download_url(POKEC_REL_URL, self.raw_dir)
+
+    # ------------------------------------------------------------------
+    def process(self):
+        print("[Pokec] Loading profiles...")
+        profiles = pd.read_csv(
+            self.raw_paths[0], sep='\t', header=None, names=[
+                "user_id","public","completion_percentage","gender","region",
+                "last_login","registration","AGE","body","I_am_working_in_field",
+                "spoken_languages","hobbies","I_most_enjoy_good_food","pets",
+                "body_type","my_eyesight","eye_color","hair_color","hair_type",
+                "completed_level_of_education","favourite_color","relation_to_smoking",
+                "relation_to_alcohol","sign_in_zodiac","on_pokec_i_am_looking_for",
+                "love_is_for_me","relation_to_casual_sex","my_partner_should_be",
+                "marital_status","children","relation_to_children","I_like_movies",
+                "I_like_watching_movie","I_like_music","I_mostly_like_listening_to_music",
+                "the_idea_of_good_evening","I_like_specialties_from_kitchen","fun",
+                "I_am_going_to_concerts","my_active_sports","my_passive_sports",
+                "profession","I_like_books","life_style","music","cars","politics",
+                "relationships","art_culture","hobbies_interests","science_technologies",
+                "computers_internet","education","sport","movies","travelling",
+                "health","companies_brands","more"
+            ]
+        )
+
+        print("[Pokec] Loading relationships...")
+        edges = pd.read_csv(self.raw_paths[1], sep='\t', names=["src","dst"])
+        edges -= 1  # zero-based index
+
+        # ==============================================================
+        # SGFormer 特征处理方式
+        # ==============================================================
+
+        # 1. 数值特征
+        num_feat = profiles[["public", "completion_percentage", "AGE"]].fillna(0).to_numpy()
+
+        # 2. 时间戳处理
+        for col in ["registration", "last_login"]:
+            profiles[col] = pd.to_datetime(profiles[col], errors='coerce')
+            profiles[col] = profiles[col].astype("int64").fillna(0)
+
+        time_feat = profiles[["registration", "last_login"]].to_numpy().astype(float)
+
+        # 3. region 简化
+        region_s = profiles["region"].fillna("unknown").apply(lambda x: x.split(",")[0])
+        region_onehot = pd.get_dummies(region_s).to_numpy()
+
+        # 4. 所有文本列 → 是否存在
+        text_cols = profiles.columns[8:]  # body ~ more
+        text_exist = profiles[text_cols].notna().astype(int).to_numpy()
+
+        # 组合最终特征
+        x = np.hstack([num_feat, time_feat, region_onehot, text_exist])
+        x = torch.tensor(x, dtype=torch.float)
+
+        # label = gender
+        y = torch.tensor(profiles["gender"].fillna(-1).to_numpy(), dtype=torch.long)
+
+        # ------------------------------------------------------------
+        # edge_index (SGFormer 使用无向图)
+        # ------------------------------------------------------------
+        edge_index = torch.tensor(edges.values.T, dtype=torch.long)
+        edge_index = to_undirected(edge_index)
+
+        # ------------------------------------------------------------
+        # Train / Val / Test split（SGFormer 标准）
+        # ------------------------------------------------------------
+        valid_nodes = torch.where(y != -1)[0]
+        N = len(valid_nodes)
+        n_train = int(N * 0.5)
+        n_val = int(N * 0.25)
+
+        perm = torch.randperm(N)
+        train_idx = valid_nodes[perm[:n_train]]
+        val_idx = valid_nodes[perm[n_train:n_train+n_val]]
+        test_idx = valid_nodes[perm[n_train+n_val:]]
+
+        train_mask = index_to_mask(train_idx, x.size(0))
+        val_mask   = index_to_mask(val_idx, x.size(0))
+        test_mask  = index_to_mask(test_idx, x.size(0))
+
+        data = Data(
+            x=x,
+            edge_index=edge_index,
+            y=y,
+            train_mask=train_mask,
+            val_mask=val_mask,
+            test_mask=test_mask,
+        )
+
+        torch.save(self.collate([data]), self.processed_paths[0])

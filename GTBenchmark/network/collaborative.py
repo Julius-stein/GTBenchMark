@@ -5,6 +5,7 @@ import GTBenchmark.graphgym.register as register
 from GTBenchmark.graphgym.config import cfg
 from GTBenchmark.graphgym.models.layer import  GeneralMultiLayer
 from GTBenchmark.graphgym.register import register_network
+from GTBenchmark.graphgym.register import network_dict
 
 from GTBenchmark.network.bga_model import BGA
 
@@ -40,7 +41,8 @@ class Collaborative(torch.nn.Module):
         super(Collaborative, self).__init__()
         self.alpha = cfg.gt.alpha
         self.tau = cfg.gt.tau
-        self.gnn = GeneralMultiLayer(cfg.gnn.layer_type.lower()+'conv', dim_in = dim_in, dim_out = dim_out, has_bias = True, has_act = True, num_layers = cfg.gnn.layers)
+        # self.gnn = GeneralMultiLayer(cfg.gnn.layer_type.lower()+'conv', dim_in = dim_in, dim_out = dim_out, has_bias = True, has_act = True, num_layers = cfg.gnn.layers)
+        self.gnn = network_dict["GraphConv"]()
         self.bga = BGA(dim_in, dim_out)
         self.attn = None
         

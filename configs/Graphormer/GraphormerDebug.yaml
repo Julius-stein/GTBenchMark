@@ -1,7 +1,7 @@
 out_dir: ./results/graphormernew
 metric_best: mae
 metric_agg: argmin
-seed: 0
+seed: 42
 
 dataset:
   format: PyG-ZINC

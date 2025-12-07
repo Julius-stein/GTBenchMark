@@ -1,13 +1,13 @@
 out_dir: ./results/test
 metric_agg: argmax
-metric_best: accuracy
+metric_best: auc
 num_workers: 0
 seed: 42
 
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: OGB
-  name: ogbn-arxiv
+  name: ogbn-proteins
   split_mode: standard
   task: node
   task_type: classification
@@ -85,4 +85,4 @@ optim:
   weight_decay: 1e-4
 
 perf:
-  mode: "off"
+  mode: "op-only"

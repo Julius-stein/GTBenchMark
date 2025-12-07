@@ -1,0 +1,515 @@
+===== Hardware Safety Check =====
+Time: 2025年 12月 07日 星期日 09:20:29 CST
+
+>> CPU Temperature & Throttling
+power_meter-acpi-0
+Adapter: ACPI interface
+power1:           N/A  (interval = 4294967.29 s)
+
+coretemp-isa-0000
+Adapter: ISA adapter
+Package id 0:  +37.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 0:        +33.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 1:        +33.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 2:        +33.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 3:        +34.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 4:        +32.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 5:        +32.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 6:        +31.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 7:        +33.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 8:        +36.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 9:        +31.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 10:       +30.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 11:       +33.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 12:       +34.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 13:       +37.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 14:       +34.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 15:       +33.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 16:       +33.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 17:       +34.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 18:       +32.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 19:       +32.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 20:       +30.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 21:       +33.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 22:       +30.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 23:       +32.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 24:       +33.0°C  (high = +84.0°C, crit = +94.0°C)
+Core 25:       +33.0°C  (high = +84.0°C, crit = +94.0°C)
+
+
+>> CPU Frequency
+Model name:                         Intel(R) Xeon(R) Gold 5320 CPU @ 2.20GHz
+CPU MHz:                            1483.893
+CPU max MHz:                        3400.0000
+CPU min MHz:                        800.0000
+
+>> GPU Status (nvidia-smi)
+Failed to parse --display/-d flags
+
+>> PCIe Hardware Check
+	Capabilities: [ac] MSI-X: Enable+ Count=1 Masked-
+		Vector table: BAR=0 offset=00002000
+		PBA: BAR=0 offset=00003000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP- SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [1d0 v1] Latency Tolerance Reporting
+--
+	Capabilities: [ac] MSI-X: Enable+ Count=1 Masked-
+		Vector table: BAR=0 offset=00002000
+		PBA: BAR=0 offset=00003000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP- SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [1d0 v1] Latency Tolerance Reporting
+--
+	Capabilities: [ac] MSI-X: Enable+ Count=1 Masked-
+		Vector table: BAR=0 offset=00002000
+		PBA: BAR=0 offset=00003000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP- SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [1d0 v1] Latency Tolerance Reporting
+--
+	Capabilities: [ac] MSI-X: Enable+ Count=1 Masked-
+		Vector table: BAR=0 offset=00002000
+		PBA: BAR=0 offset=00003000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP- SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [1d0 v1] Latency Tolerance Reporting
+--
+	Capabilities: [ac] MSI-X: Enable+ Count=1 Masked-
+		Vector table: BAR=0 offset=00002000
+		PBA: BAR=0 offset=00003000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP- SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [1d0 v1] Latency Tolerance Reporting
+--
+	Capabilities: [ac] MSI-X: Enable+ Count=1 Masked-
+		Vector table: BAR=0 offset=00002000
+		PBA: BAR=0 offset=00003000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP- SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [1d0 v1] Latency Tolerance Reporting
+--
+	Capabilities: [ac] MSI-X: Enable+ Count=1 Masked-
+		Vector table: BAR=0 offset=00002000
+		PBA: BAR=0 offset=00003000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP- SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [1d0 v1] Latency Tolerance Reporting
+--
+	Capabilities: [ac] MSI-X: Enable+ Count=1 Masked-
+		Vector table: BAR=0 offset=00002000
+		PBA: BAR=0 offset=00003000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP- SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [1d0 v1] Latency Tolerance Reporting
+--
+	Capabilities: [a0] Power Management version 3
+		Flags: PMEClk- DSI- D1- D2- AuxCurrent=0mA PME(D0+,D1-,D2-,D3hot+,D3cold+)
+		Status: D3 NoSoftRst- PME-Enable+ DSel=0 DScale=0 PME-
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt+ UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr+ BadTLP+ BadDLLP+ Rollover+ Timeout+ AdvNonFatalErr+
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+		RootCmd: CERptEn- NFERptEn- FERptEn-
+		RootSta: CERcvd- MultCERcvd- UERcvd- MultUERcvd-
+			 FirstFatal- NonFatalMsg- FatalMsg- IntMsg 0
+		ErrorSrc: ERR_COR: 0000 ERR_FATAL/NONFATAL: 0000
+	Capabilities: [140 v1] Access Control Services
+		ACSCap:	SrcValid+ TransBlk+ ReqRedir+ CmpltRedir+ UpstreamFwd- EgressCtrl- DirectTrans-
+		ACSCtl:	SrcValid- TransBlk- ReqRedir- CmpltRedir- UpstreamFwd- EgressCtrl- DirectTrans-
+--
+	Capabilities: [a0] Power Management version 3
+		Flags: PMEClk- DSI- D1- D2- AuxCurrent=0mA PME(D0+,D1-,D2-,D3hot+,D3cold+)
+		Status: D0 NoSoftRst- PME-Enable- DSel=0 DScale=0 PME-
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt+ UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+		RootCmd: CERptEn- NFERptEn- FERptEn-
+		RootSta: CERcvd- MultCERcvd- UERcvd- MultUERcvd-
+			 FirstFatal- NonFatalMsg- FatalMsg- IntMsg 0
+		ErrorSrc: ERR_COR: 0000 ERR_FATAL/NONFATAL: 0000
+	Capabilities: [140 v1] Access Control Services
+		ACSCap:	SrcValid+ TransBlk+ ReqRedir+ CmpltRedir+ UpstreamFwd- EgressCtrl- DirectTrans-
+		ACSCtl:	SrcValid- TransBlk- ReqRedir- CmpltRedir- UpstreamFwd- EgressCtrl- DirectTrans-
+--
+	Capabilities: [a0] Power Management version 3
+		Flags: PMEClk- DSI- D1- D2- AuxCurrent=0mA PME(D0+,D1-,D2-,D3hot+,D3cold+)
+		Status: D0 NoSoftRst- PME-Enable- DSel=0 DScale=0 PME-
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt+ UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES- TLP+ FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+		RootCmd: CERptEn- NFERptEn- FERptEn-
+		RootSta: CERcvd- MultCERcvd- UERcvd- MultUERcvd-
+			 FirstFatal- NonFatalMsg- FatalMsg- IntMsg 0
+		ErrorSrc: ERR_COR: 0000 ERR_FATAL/NONFATAL: 0000
+	Capabilities: [140 v1] Access Control Services
+		ACSCap:	SrcValid+ TransBlk+ ReqRedir+ CmpltRedir+ UpstreamFwd- EgressCtrl- DirectTrans-
+		ACSCtl:	SrcValid- TransBlk- ReqRedir- CmpltRedir- UpstreamFwd- EgressCtrl- DirectTrans-
+--
+			 Compliance De-emphasis: -6dB
+		LnkSta2: Current De-emphasis Level: -6dB, EqualizationComplete-, EqualizationPhase1-
+			 EqualizationPhase2-, EqualizationPhase3-, LinkEqualizationRequest-
+	Capabilities: [100 v2] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES+ TLP+ FCP+ CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap+ ECRCGenEn- ECRCChkCap+ ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [140 v1] Device Serial Number 3c-ec-ef-ff-ff-c6-35-8a
+--
+			Arb:	Fixed- WRR32- WRR64- WRR128- TWRR128- WRR256-
+			Ctrl:	Enable+ ID=0 ArbSelect=Fixed TC/VC=01
+			Status:	NegoPending- InProgress-
+	Capabilities: [800 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES+ TLP+ FCP+ CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+
+--
+	Capabilities: [88] Subsystem: Super Micro Computer Inc Device 1b57
+	Capabilities: [90] MSI: Enable+ Count=1/1 Maskable- 64bit-
+		Address: fee00018  Data: 0000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES+ TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES- TLP+ FCP+ CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap+ ECRCGenEn- ECRCChkCap+ ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap+
+		HeaderLog: 4a000001 18000004 fd010000 00000000
+		RootCmd: CERptEn- NFERptEn- FERptEn-
+		RootSta: CERcvd- MultCERcvd- UERcvd- MultUERcvd-
+			 FirstFatal- NonFatalMsg- FatalMsg- IntMsg 0
+		ErrorSrc: ERR_COR: 0000 ERR_FATAL/NONFATAL: 0000
+	Capabilities: [148 v1] Access Control Services
+		ACSCap:	SrcValid+ TransBlk+ ReqRedir+ CmpltRedir+ UpstreamFwd+ EgressCtrl- DirectTrans-
+		ACSCtl:	SrcValid- TransBlk- ReqRedir- CmpltRedir- UpstreamFwd- EgressCtrl- DirectTrans-
+--
+			   T_CommonMode=0us LTR1.2_Threshold=0ns
+		L1SubCtl2: T_PwrOn=10us
+	Capabilities: [128 v1] Power Budgeting <?>
+	Capabilities: [420 v2] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES+ TLP+ FCP+ CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [600 v1] Vendor Specific Information: ID=0001 Rev=1 Len=024 <?>
+--
+			 AtomicOpsCtl: ReqEn-
+		LnkSta2: Current De-emphasis Level: -3.5dB, EqualizationComplete-, EqualizationPhase1-
+			 EqualizationPhase2-, EqualizationPhase3-, LinkEqualizationRequest-
+	Capabilities: [100 v2] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES+ TLP+ FCP+ CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [160 v1] Data Link Feature <?>
+--
+	Capabilities: [88] Subsystem: Super Micro Computer Inc Device 1b57
+	Capabilities: [90] MSI: Enable+ Count=1/1 Maskable- 64bit-
+		Address: fee00018  Data: 0000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES+ TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES- TLP+ FCP+ CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap+ ECRCGenEn- ECRCChkCap+ ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap+
+		HeaderLog: 4a000001 51010004 fd010000 00000000
+		RootCmd: CERptEn- NFERptEn- FERptEn-
+		RootSta: CERcvd- MultCERcvd- UERcvd- MultUERcvd-
+			 FirstFatal- NonFatalMsg- FatalMsg- IntMsg 0
+		ErrorSrc: ERR_COR: 0000 ERR_FATAL/NONFATAL: 0000
+	Capabilities: [148 v1] Access Control Services
+		ACSCap:	SrcValid+ TransBlk+ ReqRedir+ CmpltRedir+ UpstreamFwd+ EgressCtrl- DirectTrans-
+		ACSCtl:	SrcValid- TransBlk- ReqRedir- CmpltRedir- UpstreamFwd- EgressCtrl- DirectTrans-
+--
+			   T_CommonMode=0us
+		L1SubCtl2: T_PwrOn=10us
+	Capabilities: [128 v1] Power Budgeting <?>
+	Capabilities: [420 v2] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES+ TLP+ FCP+ CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [600 v1] Vendor Specific Information: ID=0001 Rev=1 Len=024 <?>
+--
+			 AtomicOpsCtl: ReqEn-
+		LnkSta2: Current De-emphasis Level: -3.5dB, EqualizationComplete-, EqualizationPhase1-
+			 EqualizationPhase2-, EqualizationPhase3-, LinkEqualizationRequest-
+	Capabilities: [100 v2] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq+ ACSViol-
+		UESvrt:	DLP+ SDES+ TLP+ FCP+ CmpltTO- CmpltAbrt- UnxCmplt- RxOF+ MalfTLP+ ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+		CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		AERCap:	First Error Pointer: 00, ECRCGenCap- ECRCGenEn- ECRCChkCap- ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [160 v1] Data Link Feature <?>
+--
+	Capabilities: [88] Subsystem: Super Micro Computer Inc Device 1b57
+	Capabilities: [90] MSI: Enable+ Count=1/1 Maskable- 64bit-
+		Address: fee00018  Data: 0000
+	Capabilities: [100 v1] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP+ SDES+ TLP- FCP+ CmpltTO+ CmpltAbrt+ UnxCmplt+ RxOF+ MalfTLP+ ECRC+ UnsupReq+ ACSViol+
+		UESvrt:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+		CEMsk:	RxErr+ BadTLP+ BadDLLP+ Rollover+ Timeout+ AdvNonFatalErr+
+		AERCap:	First Error Pointer: 00, ECRCGenCap+ ECRCGenEn- ECRCChkCap+ ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap+
+		HeaderLog: 40000001 8a00000f fee000f8 00000000
+		RootCmd: CERptEn- NFERptEn- FERptEn-
+		RootSta: CERcvd- MultCERcvd- UERcvd- MultUERcvd-
+			 FirstFatal- NonFatalMsg- FatalMsg- IntMsg 0
+		ErrorSrc: ERR_COR: 0000 ERR_FATAL/NONFATAL: 0000
+	Capabilities: [148 v1] Access Control Services
+		ACSCap:	SrcValid+ TransBlk+ ReqRedir+ CmpltRedir+ UpstreamFwd+ EgressCtrl- DirectTrans-
+		ACSCtl:	SrcValid- TransBlk- ReqRedir- CmpltRedir- UpstreamFwd- EgressCtrl- DirectTrans-
+--
+	Capabilities: [b0] MSI-X: Enable+ Count=16 Masked-
+		Vector table: BAR=0 offset=00002000
+		PBA: BAR=0 offset=00002100
+	Capabilities: [100 v2] Advanced Error Reporting
+		UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		UEMsk:	DLP+ SDES- TLP+ FCP+ CmpltTO+ CmpltAbrt+ UnxCmplt+ RxOF+ MalfTLP+ ECRC+ UnsupReq+ ACSViol-
+		UESvrt:	DLP- SDES+ TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+		CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+		CEMsk:	RxErr+ BadTLP+ BadDLLP+ Rollover+ Timeout+ AdvNonFatalErr+
+		AERCap:	First Error Pointer: 00, ECRCGenCap+ ECRCGenEn- ECRCChkCap+ ECRCChkEn-
+			MultHdrRecCap- MultHdrRecEn- TLPPfxPres- HdrLogCap-
+		HeaderLog: 00000000 00000000 00000000 00000000
+	Capabilities: [158 v1] Secondary PCI Express
+
+>> Memory ECC Error Check
+未检测到 rasdaemon，无法读取ECC。若为服务器建议安装: rasdaemon
+
+>> Disk SMART Health
+>>> Checking /dev/sda
+
+>>> Checking /dev/sdb
+
+>>> Checking /dev/sdc
+
+>>> Checking /dev/nvme0n1
+
+>> Fan Speed
+
+>> Kernel Hardware Errors (dmesg)
+[    2.811423] Calibrating delay loop (skipped), value calculated using timer frequency.. 4400.00 BogoMIPS (lpj=8800000)
+[    2.811490] x86/cpu: User Mode Instruction Prevention (UMIP) activated
+[    2.811517] mce: CPU0: Thermal monitoring enabled (TM1)
+[    2.811851] process: using mwait in idle threads
+[    2.811853] Last level iTLB entries: 4KB 0, 2MB 0, 4MB 0
+--
+[    4.295666] system 00:06: Plug and Play ACPI device, IDs PNP0c02 (active)
+[    4.296574] pnp: PnP ACPI: found 7 devices
+[    4.297749] thermal_sys: Registered thermal governor 'fair_share'
+[    4.297749] thermal_sys: Registered thermal governor 'bang_bang'
+[    4.297750] thermal_sys: Registered thermal governor 'step_wise'
+[    4.297751] thermal_sys: Registered thermal governor 'user_space'
+[    4.297751] thermal_sys: Registered thermal governor 'power_allocator'
+[    4.302245] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    4.302276] pci 0000:00:1c.0: bridge window [io  0x1000-0x0fff] to [bus 01] add_size 1000
+--
+[    4.307458] NET: Registered protocol family 44
+[    4.314344] pci 0000:18:00.0: CLS mismatch (64 != 32), using 64 bytes
+[    4.314357] pci 0000:18:00.1: D0 power state depends on 0000:18:00.0
+[    4.314404] pci 0000:51:00.1: D0 power state depends on 0000:51:00.0
+[    4.314563] Trying to unpack rootfs image as initramfs...
+[    4.438820] Freeing initrd memory: 59552K
+--
+[    4.478691] fb0: EFI VGA frame buffer device
+[    4.478702] intel_idle: does not run on family 6 model 106
+[    4.479520] input: Power Button as /devices/LNXSYSTM:00/LNXPWRBN:00/input/input0
+[    4.479564] ACPI: Power Button [PWRF]
+[    4.479717] Monitor-Mwait will be used to enter C-1 state
+[    4.479729] Monitor-Mwait will be used to enter C-2 state
+[    4.487200] ERST: Error Record Serialization Table (ERST) support is initialized.
+[    4.487202] pstore: Registered erst as persistent store backend
+[    4.487359] GHES: APEI firmware first mode is enabled by APEI bit and WHEA _OSC.
+--
+[    4.698398] NET: Registered protocol family 17
+[    4.698424] Key type dns_resolver registered
+[    4.708444] RAS: Correctable Errors collector initialized.
+[    4.708468] microcode: sig=0x606a6, pf=0x1, revision=0xd000404
+[    4.708730] microcode: Microcode Update Driver: v2.2.
+--
+[    6.626918] systemd[1]: Detected architecture x86-64.
+[    6.656233] systemd[1]: Set hostname to <iDMG-Keyboard>.
+[    6.673713] systemd-fstab-generator[641]: Failed to create unit file /run/systemd/generator/mnt-data1.mount, as it already exists. Duplicate entry in /etc/fstab?
+[    6.674909] systemd[632]: /lib/systemd/system-generators/systemd-fstab-generator failed with exit status 1.
+[    6.703976] systemd[1]: Configuration file /run/systemd/system/netplan-ovs-cleanup.service is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+[    6.709570] systemd[1]: Configuration file /etc/systemd/system/ollama.service is marked executable. Please remove executable permission bits. Proceeding anyway.
+--
+[    6.784497] systemd[1]: Finished Load Kernel Module ramoops.
+[    6.784574] systemd[1]: proc-sys-fs-binfmt_misc.automount: Got automount request for /proc/sys/fs/binfmt_misc, triggered by 684 (systemd-binfmt)
+[    6.784850] EXT4-fs (nvme0n1p3): re-mounted. Opts: errors=remount-ro
+[    6.785424] systemd[1]: Mounting Arbitrary Executable File Formats File System...
+[    6.786148] systemd[1]: Starting pNFS block layout mapping daemon...
+--
+[    7.272687] ipmi_si: Adding ACPI-specified kcs state machine
+[    7.273389] ipmi_si: Trying ACPI-specified kcs state machine at i/o address 0xca2, slave address 0x20, irq 0
+[    7.355258] power_meter ACPI000D:00: Found ACPI power meter.
+[    7.355567] power_meter ACPI000D:00: Ignoring unsafe software power cap!
+[    7.355843] power_meter ACPI000D:00: hwmon_device_register() is deprecated. Please convert the driver to use hwmon_device_register_with_info().
+[    7.397692] ioatdma: Intel(R) QuickData Technology Driver 5.00
+[    7.398008] ioatdma 0000:00:01.0: enabling device (0144 -> 0146)
+--
+[    8.040205] intel_rapl_common: Found RAPL domain dram
+[    8.040206] intel_rapl_common: DRAM domain energy unit 15300pj
+[    8.049837] nvidia: module verification failed: signature and/or required key missing - tainting kernel
+[    8.054901] Adding 10485756k swap on /dev/nvme0n1p2.  Priority:-2 extents:1 across:10485756k SSFS
+[    8.059015] nvidia-nvlink: Nvlink Core is being initialized, major device number 234
+
+>> Recent Syslog Hardware Events
+
+>> IPMI Check (Power/Fan/Temp)
+CPU Temp         | 01h | ok  |  3.1 | 37 degrees C
+PCH Temp         | 0Ah | ok  |  7.1 | 45 degrees C
+System Temp      | 0Bh | ok  |  7.2 | 38 degrees C
+Peripheral Temp  | 0Ch | ok  |  7.3 | 42 degrees C
+CPU_VRMIN Temp   | 10h | ok  |  7.16 | 47 degrees C
+CPU_VRMIO Temp   | 11h | ok  |  7.17 | 52 degrees C
+VRMABCD Temp     | 12h | ok  |  7.18 | 53 degrees C
+VRMEFGH Temp     | 13h | ok  |  7.19 | 52 degrees C
+12V              | 30h | ok  |  7.32 | 11.94 Volts
+5VCC             | 31h | ok  |  7.33 | 5.10 Volts
+3.3VCC           | 32h | ok  |  7.34 | 3.33 Volts
+VBAT             | 33h | ok  | 40.0 | Presence Detected
+Vcpu             | 34h | ok  |  7.36 | 1.82 Volts
+VDimmABCD        | 35h | ok  |  7.37 | 1.23 Volts
+VDimmEFGH        | 36h | ok  |  7.38 | 1.22 Volts
+P2V5_AUX_BMC     | 37h | ok  |  7.39 | 2.60 Volts
+5VSB             | 38h | ok  |  7.40 | 5.05 Volts
+3.3VSB           | 39h | ok  |  7.41 | 3.34 Volts
+P1V2_AUX_BMC     | 3Ah | ok  |  7.42 | 1.21 Volts
+P1V15_AUX_BMC    | 3Bh | ok  |  7.43 | 1.17 Volts
+P1V8_PCH         | 3Ch | ok  |  7.44 | 1.85 Volts
+PVNN_PCH         | 3Dh | ok  |  7.45 | 1.01 Volts
+P1V05_PCH        | 3Eh | ok  |  7.46 | 1.06 Volts
+FAN1             | 41h | ns  | 29.1 | No Reading
+FAN2             | 42h | ns  | 29.2 | No Reading
+FAN3             | 43h | ok  | 29.3 | 2380 RPM
+FAN4             | 44h | ns  | 29.4 | No Reading
+FAN5             | 45h | ok  | 29.5 | 700 RPM
+FAN6             | 46h | ns  | 29.6 | No Reading
+FANA             | 47h | ns  | 29.7 | No Reading
+FANB             | 48h | ns  | 29.8 | No Reading
+FANC             | 49h | ns  | 29.9 | No Reading
+FAND             | 4Ah | ns  | 29.10 | No Reading
+M2_SSD1 Temp     | 8Ch | ns  |  1.48 | No Reading
+M2_SSD2 Temp     | 8Dh | ns  |  2.48 | No Reading
+M2_SSD3 Temp     | 8Eh | ns  |  3.48 | No Reading
+M2_SSD4 Temp     | 8Fh | ns  |  4.48 | No Reading
+DIMMABCD Temp    | B0h | ok  | 32.0 | 47 degrees C
+DIMMEFGH Temp    | B1h | ok  | 32.1 | 44 degrees C
+PMEMABCD Temp    | B8h | ns  | 32.2 | No Reading
+PMEMEFGH Temp    | B9h | ns  | 32.4 | No Reading
+Chassis Intru    | AAh | ok  | 23.0 | 
+GPU5 Temp        | 74h | ok  | 11.0 | 55 degrees C
+
+===== SUMMARY =====
+检查已完成。请重点关注以下可能的风险：
+- CPU / GPU 是否有温度过高 (>=80°C)
+- 风扇转速是否为 0 或异常低
+- SMART 是否出现 Error / Wear 高 / High Temp
+- dmesg 中是否出现 thermal throttling, power error
+- IPMI 是否报警（Power / Fan / Temp）
+

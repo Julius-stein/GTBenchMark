@@ -1,11 +1,11 @@
-out_dir: ./results/arxiv/
+out_dir: ./results/test/
 metric_agg: argmax
 metric_best: accuracy
 seed: 42
 num_workers: 0
 dataset:
   format: OGB
-  name: ogbn-arxiv
+  name: ogbn-products
   split_mode: standard
   task: node
   task_type: classification
@@ -15,13 +15,12 @@ metis:
   drop_rate: 0.0
   enable: true
   num_hops: 0
-  online: true
   patch_num_diff: -1
   patch_rw_dim: 0
-  patches: 2048
+  patches: 8192
   mode: subgraph
 train:
-  batch_size: 2048
+  batch_size: 256
   persistent_workers: false
   pin_memory: false
   sampler: full_batch
@@ -62,14 +61,14 @@ gt:
   dropout: 0.5
   layer_norm: true
   layer_type: Transformer
-  layers: 1
-  n_heads: 4
-  tau: 0.9
+  layers: 2
+  n_heads: 8
+  tau: 0.7
   use_patch_attn: true
   head: inductive_node
   use_extra_loss: True #definitly True
 optim:
-  base_lr: 0.001
+  base_lr: 5e-4
   clip_grad_norm: true
   max_epoch: 500
   num_warmup_epochs: 20
@@ -77,4 +76,4 @@ optim:
   scheduler: cosine_with_warmup
   weight_decay: 0.
 perf:
-  mode: "off"
+  mode: "op-only"

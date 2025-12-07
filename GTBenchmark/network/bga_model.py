@@ -5,7 +5,7 @@ import GTBenchmark.graphgym.register as register
 from GTBenchmark.graphgym.config import cfg
 from GTBenchmark.graphgym.models.layer import MLP
 from GTBenchmark.graphgym.register import register_network
-
+from GTBenchmark.graphgym.register import mask_dict
 from GTBenchmark.network.utils import FeatureEncoder
 from GTBenchmark.layer.bga_layer import BGALayer
 
@@ -32,6 +32,7 @@ class BGA(nn.Module):
     def __init__(self, dim_in: int, dim_out: int, dropout1=0.5, dropout2=0.1):
         super(BGA, self).__init__()
         self.encoder = FeatureEncoder()
+        self.maskGen = mask_dict["full"]()
         
         self.layers = cfg.gt.layers
         self.n_head = cfg.gt.n_heads
@@ -44,16 +45,18 @@ class BGA(nn.Module):
         self.attn=[]
 
     def forward(self, batch):
-        batch.x = F.pad(batch.x, [0, 0, 0, 1]) # padding for the last node
-        num_nodes = batch.x.shape[0]
+        # batch.x = F.pad(batch.x, [0, 0, 0, 1]) # padding for the last node
+        # num_nodes = batch.x.shape[0]
         
-        patch_mask = (batch.patch != num_nodes - 1).float().unsqueeze(-1)
-        attn_mask = torch.matmul(patch_mask, patch_mask.transpose(1, 2)).int()
+        # patch_mask = (batch.patch != num_nodes - 1).float().unsqueeze(-1)
+        # attn_mask = torch.matmul(patch_mask, patch_mask.transpose(1, 2)).int()
 
         batch = self.encoder(batch)
+        batch,attn_mask = self.maskGen(batch)
         for i in range(0, self.layers):
-            batch.x = self.BGALayers[i](batch.x, batch.patch, attn_mask)
+            batch.x = self.BGALayers[i](batch.x, attn_mask)
         batch.x = self.dropout(batch.x)
+        batch = self.maskGen.from_dense_batch(batch)
         batch.x = self.classifier(batch.x)
-        batch.x = batch.x[:-1]
+        # batch.x = batch.x[:-1]
         return batch

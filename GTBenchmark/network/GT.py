@@ -60,11 +60,11 @@ class GTModel(torch.nn.Module):
             self.gt_layers = nn.ModuleList([GTLayer(dim_h=self.dim_h) for _ in range(cfg.gt.layers)])
 
         # ---------------- GNN 栈--------------------------------------
-        self.gnn_mode = cfg.gnn.mode.lower()  # off | post | cascade | parallel | gps
-        if self.gnn_mode in ("post", "cascade", "parallel"):
-            GNNLayer = register.layer_dict[cfg.gnn.layertype]
-            gnn_layers = cfg.gnn.layers if hasattr(cfg.gnn, "layers") else cfg.gt.layers
-            self.gnn_layers = nn.ModuleList([GNNLayer(self.dim_h) for _ in range(gnn_layers)])
+        self.gnn_mode = cfg.gnn.mode.lower()  # off | post | cascade | parallel | gps | gnn-only
+        if self.gnn_mode in ("post", "cascade", "parallel","gnn-only"):
+            GNNLayer = register.layer_dict[cfg.gnn.layer_type]
+            gnn_layers = cfg.gnn.layers
+            self.gnn_layers = nn.ModuleList([GNNLayer(self.dim_h,self.dim_h) for _ in range(gnn_layers)])
             self.has_gnn = True
         else:
             self.gnn_layers = nn.ModuleList()
@@ -91,6 +91,8 @@ class GTModel(torch.nn.Module):
             self.run = self._run_cascade
         elif self.gnn_mode == "parallel":
             self.run = self._run_parallel
+        elif self.gnn_mode == "gnn-only":
+            self.run = self._gnn_stack
         else:
             raise ValueError(f"Unknown gnn.mode: {self.gnn_mode}")
 

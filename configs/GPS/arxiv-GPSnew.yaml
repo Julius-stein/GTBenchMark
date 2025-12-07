@@ -2,7 +2,7 @@ out_dir: ./results/arxiv/
 metric_agg: argmax
 metric_best: accuracy
 num_workers: 0
-seed: 442
+seed: 42
 # device: cuda:1
 dataset:
   dir: /mnt/data2/duxin/.datasets/

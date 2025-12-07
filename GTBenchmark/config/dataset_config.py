@@ -27,7 +27,7 @@ def dataset_cfg(cfg):
 
     cfg.dataset.preprocess = "None"
 
-    cfg.dataset.add_self_loops = False
+    cfg.dataset.add_self_loops = True
 
     # NAG preprocess
     cfg.dataset.hop = 3 

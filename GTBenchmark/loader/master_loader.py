@@ -26,7 +26,7 @@ from torch_geometric.datasets import (DBLP, IMDB, OGB_MAG, Planetoid, MovieLens)
 from GTBenchmark.datasets.oag_dataset import OAGDataset
 from GTBenchmark.datasets.mag_dataset import MAGDataset
 from GTBenchmark.datasets.rcdd_dataset import RCDDDataset
-from GTBenchmark.datasets.pokec_dataset import PokecDataset
+from GTBenchmark.datasets.pokec_dataset import PokecDataset, PokecHomoSGDataset
 from GTBenchmark.datasets.ieee_cis_dataset import IeeeCisDataset
 from GTBenchmark.datasets.pdns_dataset import PDNSDataset
 from GTBenchmark.graphgym.config import cfg
@@ -36,10 +36,10 @@ from GTBenchmark.transform.posenc_stats import compute_posenc_stats
 from GTBenchmark.transform.task_preprocessing import task_specific_preprocessing
 from GTBenchmark.transform.transforms import (pre_transform_in_memory,
                                            typecast_x, concat_x_and_pos,
-                                           clip_graphs_to_size,move_node_feat_to_x)
+                                           clip_graphs_to_size,to_sparse_tensor)
 from GTBenchmark.transform.multihop_prep import generate_multihop_adj
 from GTBenchmark.transform.dist_transforms import (add_dist_features, add_reverse_edges,
-                                                 add_self_loops, effective_resistances, 
+                                                 effective_resistances, 
                                                  effective_resistance_embedding,
                                                  effective_resistances_from_embedding)
 from GTBenchmark.transform.graph_partition import GraphPartitionTransform, MiniBatchFromPartition
@@ -48,13 +48,15 @@ from GTBenchmark.transform.graph_partitionV2 import GraphPartitionTransformV2,Gr
 
 from torch_geometric.datasets import (Actor, GNNBenchmarkDataset, Planetoid,
                                       TUDataset, WebKB, WikipediaNetwork, ZINC)
-from torch_geometric.utils import (index_to_mask, to_undirected)
+from torch_geometric.utils import (index_to_mask, to_undirected,remove_self_loops,add_self_loops)
 from GTBenchmark.loader.split_generator import (prepare_splits,
                                              set_dataset_splits)
 from GTBenchmark.loader.encoding_generator import (preprocess_Node2Vec, check_Node2Vec, load_Node2Vec,
                                                  preprocess_Metapath, check_Metapath, load_Metapath,\
                                                  preprocess_KGE, check_KGE, load_KGE)
 from GTBenchmark.loader.data_preprocess import hop2token
+from GTBenchmark.utils.dataset_cache import load_dataset_from_cache
+
 
 
 def get_sparse_tensor(edge_index, num_nodes=None, num_src_nodes=None, num_dst_nodes=None, return_e_id=False):
@@ -185,6 +187,10 @@ def load_dataset_master(format, name, dataset_dir):
     Returns:
         PyG dataset object with applied perturbation transforms and data splits
     """
+    dataset,_ = load_dataset_from_cache(cfg)
+    if dataset is not None:
+        return dataset
+
     use_Hetero = cfg.dataset.heteroProcess
     if format.startswith('PyG-'):
         pyg_dataset_id = format.split('-', 1)[1]
@@ -218,7 +224,7 @@ def load_dataset_master(format, name, dataset_dir):
             dataset = preformat_RCDD(dataset_dir)
 
         elif pyg_dataset_id == 'Pokec':
-            dataset = preformat_Pokec(dataset_dir)
+            dataset = preformat_HomoPokec(dataset_dir)
 
         elif pyg_dataset_id == 'PDNS':
             dataset = preformat_PDNS(dataset_dir)
@@ -519,7 +525,23 @@ def load_dataset_master(format, name, dataset_dir):
     #     timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
     #                 + f'{elapsed:.2f}'[-3:]
     #     logging.info(f"Done! Took {timestr}")
-    
+    if cfg.dataset.add_self_loops:
+        for i, data in enumerate(dataset):
+            edge_index, edge_attr = remove_self_loops(
+                data.edge_index,
+                data.edge_attr if hasattr(data, "edge_attr") else None
+            )
+            edge_index, edge_attr = add_self_loops(
+                edge_index,
+                edge_attr=edge_attr,
+                num_nodes=data.num_nodes
+            )
+            data.edge_index = edge_index
+            if hasattr(data, "edge_attr"):
+                data.edge_attr = edge_attr
+            else:
+                data.edge_attr = edge_attr
+
 
     # Set standard dataset train/val/test splits
     if hasattr(dataset, 'split_idxs'):
@@ -715,6 +737,12 @@ def preformat_RCDD(dataset_dir):
     return dataset
 
 
+def preformat_HomoPokec(dataset_dir):
+    root = osp.join(dataset_dir, "PokecHomoSG")
+    dataset = PokecHomoSGDataset(root)
+    return dataset
+
+
 def preformat_Pokec(dataset_dir):
     """Load and preformat Pokec datasets.
 
@@ -780,16 +808,16 @@ def preformat_ogbn(dataset_dir, name):
 
     # === 预处理 ===
     if name == 'ogbn-arxiv':
-        pre_transform_in_memory(dataset, partial(add_reverse_edges))
-        if cfg.dataset.add_self_loops:
-            pre_transform_in_memory(dataset, partial(add_self_loops))
+        dataset._data['edge_index'] = to_undirected(dataset._data['edge_index'])
+        # pre_transform_in_memory(dataset, partial(add_reverse_edges))
 
     if name == 'ogbn-proteins':
-        pre_transform_in_memory(dataset, partial(move_node_feat_to_x))
-        pre_transform_in_memory(dataset, partial(typecast_x, type_str='long'))
-        
-        if cfg.dataset.add_self_loops:
-            pre_transform_in_memory(dataset, partial(add_self_loops))
+        edge_index_ = to_sparse_tensor(dataset._data['edge_index'],
+                                   dataset._data['edge_attr'], dataset._data['num_nodes'])
+        dataset._data['x'] = edge_index_.mean(dim=1)
+        dataset._data['edge_attr'] = None
+        # pre_transform_in_memory(dataset, partial(move_node_feat_to_x))
+        # pre_transform_in_memory(dataset, partial(typecast_x, type_str='long'))
 
     data = dataset[0]
     data.y = data.y.squeeze(-1).to(torch.long)

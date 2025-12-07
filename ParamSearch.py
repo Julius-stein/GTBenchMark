@@ -71,9 +71,9 @@ def _safe_float(x) -> Optional[float]:
 def parse_search_args():
     gg_args = gg_parse_args()
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--n-trials", type=int, default=36)
-    parser.add_argument("--study-name", type=str, default="SGCora")
-    parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--n-trials", type=int, default=20)
+    parser.add_argument("--study-name", type=str, default="GTcora")
+    parser.add_argument("--gpu", type=int, default=-1)
     parser.add_argument("--param-limit", type=int, default=-1,
                         help="Max number of model params allowed, -1 means no limit")
     args2, _ = parser.parse_known_args()
@@ -83,30 +83,32 @@ def parse_search_args():
 
 def _set_search_params(trial: optuna.trial.Trial) -> Dict[str, Any]:
     hp = {}
-    hp["optim.base_lr"] = trial.suggest_float("optim.base_lr", 5e-4, 1e-2, log=True)
-    hp["optim.weight_decay"] = trial.suggest_float("optim.weight_decay", 1e-5, 5e-4, log=True)
+    # hp["optim.base_lr"] = trial.suggest_float("optim.base_lr", 5e-4, 1e-2, log=True)
+    # hp["optim.weight_decay"] = trial.suggest_float("optim.weight_decay", 1e-5, 5e-4, log=True)
 
-    hp["gt.dim_hidden"] = trial.suggest_categorical("gt.dim_hidden", [16,32,64, 96, 128])
-    hp["gnn.dim_inner"] = hp["gt.dim_hidden"] 
+    # hp["gt.dim_hidden"] = trial.suggest_categorical("gt.dim_hidden", [16,32,64, 96, 128,256,512])
+    # hp["gnn.dim_inner"] = hp["gt.dim_hidden"] 
     # hp["gt.ffn_dim"] = trial.suggest_categorical("gt.ffn_dim", [64, 96, 128])
 
-    hp["gt.layers"] = trial.suggest_int("gt.layers", 1, 3)
-    hp["gt.n_heads"] = trial.suggest_categorical("gt.n_heads", [1,2, 4])
+    # hp["gt.layers"] = trial.suggest_int("gt.layers", 1, 6)
+    # hp["gnn.layers"] = trial.suggest_int("gt.layers", 1, 6)
+    # hp["gt.n_heads"] = trial.suggest_categorical("gt.n_heads", [1,2, 4,8])
 
-    hp["gt.dropout"] = trial.suggest_float("gt.dropout", 0.0, 0.6)
-    hp["gt.attn_dropout"] = trial.suggest_float("gt.attn_dropout", 0.0, 0.5)
+    # hp["gt.dropout"] = trial.suggest_float("gt.dropout", 0.0, 0.6)
+    # hp["device"] = "cuda:1"
+    # hp["gt.attn_dropout"] = trial.suggest_float("gt.attn_dropout", 0.0, 0.5)
     # hp["gt.tau"] = trial.suggest_categorical("gt.tau",[0.9,0.7,0.5,0.3])
-    hp["gt.alpha"] = trial.suggest_categorical("gt.alpha",[0.9,0.8,0.7])
+    # hp["gt.alpha"] = trial.suggest_categorical("gt.alpha",[0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1])
     
 
     # hp["optim.clip_grad_norm_value"] = trial.suggest_float("optim.clip_grad_norm_value", 0.0, 0.8)
-    hp["use_source"] = trial.suggest_categorical("use_source", [True, False])
-    hp["use_weight"] = trial.suggest_categorical("use_weight", [True, False])
-    hp["use_graph"]  = trial.suggest_categorical("use_graph", [True, False])
-    hp["graph_weight"] = trial.suggest_float("gt.graph_weight",0,1)
+    # hp["use_source"] = trial.suggest_categorical("use_source", [True, False])
+    # hp["use_weight"] = trial.suggest_categorical("use_weight", [True, False])
+    # hp["use_graph"]  = trial.suggest_categorical("use_graph", [True, False])
+    # hp["graph_weight"] = trial.suggest_float("gt.graph_weight",0,1)
 
     hp["perf.mode"] = "off"
-    hp["optim.max_epoch"] = 200
+    hp["optim.max_epoch"] = 400
     hp["out_dir"] = "./results/HpSearch/"
     # hp["gnn.layers_pre_mp"] = trial.suggest_int("gnn.layers_pre_mp", 0, 1)
 
@@ -119,20 +121,21 @@ def _set_search_params(trial: optuna.trial.Trial) -> Dict[str, Any]:
     # hp["train.neighbor_sizes"] = [fanout1, fanout2]
 
     # hp["metis.patches"] = trial.suggest_int("metis.patches", 2, 6000,log=True)
+    hp["metis.patches"] = trial.suggest_categorical("metis.patches",[5130,2527,1693,830,681,423,278,169,116,97,45,34,22,18,15,12,8,6,4,2])
 
     # ---- 动态 batch size 调整 ----
     # 假设目标总节点量固定（以 arxiv 为例）
-    # TARGET_TOTAL_NODES = 20000
-    # avg_patch_nodes = 169343 / hp["metis.patches"]
-    # dynamic_batch_size = max(1, int(TARGET_TOTAL_NODES / avg_patch_nodes))
+    TARGET_TOTAL_NODES = 20000
+    avg_patch_nodes = 169343 / hp["metis.patches"]
+    dynamic_batch_size = max(1, int(TARGET_TOTAL_NODES / avg_patch_nodes))
     
     # # 可选：强制 batch_size 落在 [4, 128] 区间内
-    # dynamic_batch_size = min(dynamic_batch_size, 256)
+    dynamic_batch_size = min(dynamic_batch_size, 256)
     
-    # hp["train.batch_size"] = dynamic_batch_size
+    hp["train.batch_size"] = dynamic_batch_size
     
     # # ---- 记录方便可视化 ----
-    # hp["train.notes"] = f"patches={hp['metis.patches']}, avg_node={avg_patch_nodes},bs={dynamic_batch_size}"
+    hp["train.notes"] = f"patches={hp['metis.patches']}, avg_node={avg_patch_nodes},bs={dynamic_batch_size}"
     
     return hp
 

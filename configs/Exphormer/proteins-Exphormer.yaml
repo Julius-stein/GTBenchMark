@@ -1,12 +1,12 @@
 out_dir: ./results/test/
 metric_agg: argmax
-metric_best: accuracy
-num_workers: 1
+metric_best: auc
+num_workers: 0
 seed: 42
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: OGB
-  name: ogbn-arxiv
+  name: ogbn-proteins
   split_mode: standard
   task: node
   task_type: classification
@@ -20,7 +20,7 @@ dataset:
   add_self_loops: True
 train:
   enable_ckpt: false
-  eval_period: 1
+  eval_period: 5
   mode: custom
   batch_size: 1
   sampler: full_batch
@@ -38,18 +38,17 @@ gnn:
   normalize_adj: false
 
 gt:
-  attn_dropout: 0.5
-  act: relu
+  attn_dropout: 0.167
   batch_norm: true
-  dim_hidden: 80
-  dropout: 0.3
+  dim_hidden: 128
+  dropout: 0.0612
   layer_norm: false
-  layer_type: Exphormer
-  attn_type: ExphormerAttention
-  layers: 4
-  n_heads: 2
-  ffn_dim: 160
-  head: node
+  layer_type: Transformer
+  attn_type: MPAttention
+  layers: 2
+  n_heads: 8
+  ffn_dim: 80
+  head: inductive_node
   encoder_type : cascade
   node_encoder_list: [RawEncoder]
   edge_encoder_list: [DummyEdge,Edgefixer]
@@ -59,33 +58,13 @@ model:
   loss_fun: cross_entropy
   type: GTModel
 optim:
-  base_lr: 0.001
+  base_lr: 0.00078
   clip_grad_norm: true
-  max_epoch: 200
+  max_epoch: 600
   num_warmup_epochs: 5
   optimizer: adamW
-  clip_grad_norm_value: 1.0
+  clip_grad_norm_value: 0.329
   scheduler: cosine_with_warmup
-  weight_decay: 0.001
+  weight_decay: 1e-4
 perf:
-  mode: "full"
-reorder_Metis:
-  enable: false
-  block_size: 128
-reorder_RCM:
-  enable: false
-reorder_Slashburn:
-  enable: false
-  block_size: 128
-reorder_Random:
-  enable: false
-  block_size: 128
-reorder_BFS:
-  enable: false
-  block_size: 128
-reorder_Degree:
-  enable: false
-  block_size: 128
-reorder_GOrder:
-  enable: false
-  block_size: 128
+  mode: "op-only"

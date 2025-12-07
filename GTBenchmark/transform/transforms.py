@@ -4,6 +4,7 @@ import torch
 from torch_geometric.utils import subgraph
 from GTBenchmark.transform.graphormer import build_pair_store_ragged,make_collate_from_ragged
 from tqdm import tqdm
+from torch_sparse import SparseTensor
 
 
 def pre_transform_in_memory(dataset, transform_func, show_progress=False,side=False):
@@ -102,3 +103,22 @@ def clip_graphs_to_size(data, size_limit=5000):
         if hasattr(data, 'edge_attr'):
             data.edge_attr = edge_attr
         return data
+
+def to_sparse_tensor(edge_index, edge_feat, num_nodes):
+    """ converts the edge_index into SparseTensor
+    """
+    num_edges = edge_index.size(1)
+
+    (row, col), N, E = edge_index, num_nodes, num_edges
+    perm = (col * N + row).argsort()
+    row, col = row[perm], col[perm]
+
+    value = edge_feat[perm]
+    adj_t = SparseTensor(row=col, col=row, value=value,
+                         sparse_sizes=(N, N), is_sorted=True)
+
+    # Pre-process some important attributes.
+    adj_t.storage.rowptr()
+    adj_t.storage.csr2csc()
+
+    return adj_t

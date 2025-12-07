@@ -1,12 +1,12 @@
-out_dir: ./results/arxiv
+out_dir: ./results/test
 metric_agg: argmax
-metric_best: accuracy
+metric_best: auc
 num_workers: 0
 seed: 42
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: OGB
-  name: ogbn-arxiv
+  name: ogbn-proteins
   split_mode: standard
   task: node
   task_type: classification
@@ -16,19 +16,19 @@ dataset:
 
 metis:
   drop_rate: 0.0
-  enable: true
+  enable: false
   num_hops: 0
   online: true
   patch_num_diff: -1
   patch_rw_dim: 0
-  patches: 10
+  patches: 345
   mode: subgraph
 
 train:
   enable_ckpt: false
   eval_period: 5
   mode: custom
-  batch_size: 100
+  batch_size: 256
   tqdm: True
   sampler: full_batch
   persistent_workers: True
@@ -41,23 +41,23 @@ model:
   type: GTModel
   loss_fun: cross_entropy
 gt:
-  attn_dropout: 0.
+  attn_dropout: 0.1
   batch_norm: false
-  dim_hidden: 128
-  dropout: 0.5
+  dim_hidden: 64
+  dropout: 0.1
   layer_norm: true
   layer_type: Transformer
   attn_type: GeneralAttention
   layers: 1
-  n_heads: 2
-  ffn_dim: 256
+  n_heads: 1
+  ffn_dim: 128
   head: node
   # head: cluster_node
   encoder_type : cascade
   node_encoder_list: [RawEncoder]
-  # edge_encoder_list: [DummyEdge]
-  # input_dropout: 0.1
-  # activation_dropout: 0.1
+  # edge_encoder_list: [RawEncoder]
+  input_dropout: 0.1
+  activation_dropout: 0.1
   prepend_norm: True
   act : relu
 
@@ -65,13 +65,14 @@ gnn:
   mode: "off"
   dropout: 0.2
 optim:
-  base_lr: 0.001
+  base_lr: 3e-4
   clip_grad_norm: true
-  max_epoch: 400
-  num_warmup_epochs: 50
+  max_epoch: 200
+  num_warmup_epochs: 5
   optimizer: adamW
+  clip_grad_norm_value: 1.
   scheduler: cosine_with_warmup
-  weight_decay: 0.
+  weight_decay: 1e-5
 
 perf:
   mode: "off" 

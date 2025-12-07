@@ -1,7 +1,8 @@
 out_dir: ./results/Cora/
 metric_agg: argmax
 metric_best: accuracy
-seed: 0
+num_workers: 0
+seed: 42
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: PyG-Planetoid
@@ -13,6 +14,15 @@ dataset:
   task: node
   task_type: classification
   transductive: true
+metis:
+  drop_rate: 0.0
+  enable: true
+  num_hops: 0
+  online: true
+  patch_num_diff: -1
+  patch_rw_dim: 0
+  patches: 112
+  mode: subgraph
 train:
   enable_ckpt: false
   eval_period: 5
@@ -42,17 +52,17 @@ gt:
   n_heads: 1
   ffn_dim: 192
   head: node
-  node_encoder_list: [RawEncoder,LapPE]
-  edge_encoder_list: [DummyEdge]
+  node_encoder_list: [RawEncoder]
+  # edge_encoder_list: [DummyEdge]
 
 model:
   edge_decoding: dot
   loss_fun: cross_entropy
   type: GTModel
 optim:
-  base_lr: 0.0005
+  base_lr: 0.001
   clip_grad_norm: true
-  max_epoch: 300
+  max_epoch: 100
   num_warmup_epochs: 10
   optimizer: adamW
   scheduler: cosine_with_warmup
@@ -70,11 +80,11 @@ posenc_LapPE:
     eigvec_norm: L2
     laplacian_norm: none
     max_freqs: 4
-  enable: true
+  enable: false
   layers: 2
   model: DeepSet
   n_heads: 4
   raw_norm_type: none
 perf:
-  mode: full
+  mode: "off"
   include_name: ["FullMask","RawNodeEncoder","LapPENodeEncoder","DummyEdgeEncoder","GeneralAttn","FFN_block","GNNNodeHead"]

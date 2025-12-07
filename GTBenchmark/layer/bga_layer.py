@@ -71,8 +71,8 @@ class MultiHeadAttention(nn.Module):
         q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
 
         # For head axis broadcasting.
-        if mask is not None:
-            mask = mask.unsqueeze(1)
+        # if mask is not None:
+        #     mask = mask.unsqueeze(1)
 
         q, attn = self.attention(q, k, v, mask=mask)
 
@@ -124,7 +124,7 @@ class BGALayer(nn.Module):
     Output:
         x (Tensor): Output node features after applying the BGA layer.
     """
-    def __init__(self, n_head, channels, dropout=0.1):
+    def __init__(self, n_head, abort_channels, dropout=0.1):
         super(BGALayer, self).__init__()
         dropout = dropout
         channels = cfg.gt.dim_hidden
@@ -139,32 +139,22 @@ class BGALayer(nn.Module):
         self.use_patch_attn = cfg.gt.use_patch_attn
         self.attn = None
 
-    def forward(self, x, patch, attn_mask=None, need_attn=False):
+    def forward(self, x, attn_mask=None, need_attn=False):
 
         x = self.node_norm(x)
-        patch_x = x[patch]
-        patch_x, attn = self.node_transformer(patch_x, patch_x, patch_x, attn_mask)
+        # patch_x = x[patch]
+        patch_x, attn = self.node_transformer(x,x,x, attn_mask)
         patch_x = self.node_ffn(patch_x)
         if need_attn:
-            self.attn = torch.zeros((x.shape[0], x.shape[0]))
-            for i in tqdm(range(patch.shape[0])):
-                p = patch[i].tolist()
-                row = torch.tensor([p] * len(p)).T.flatten()
-                col = torch.tensor(p * len(p))
-                a = attn[i].mean(0).flatten().cpu()
-                self.attn = self.attn.index_put((row, col), a)
-
-            self.attn = self.attn[:-1][:, :-1].detach().cpu()
+            self.attn = attn.mean(dim=1).detach().cpu()   # shape: [B, N, N]
 
         if self.use_patch_attn:
             p = self.patch_norm(patch_x.mean(dim=1, keepdim=False)).unsqueeze(0)
             p, _ = self.patch_transformer(p, p, p)
             p = self.patch_ffn(p).permute(1, 0, 2)
             #
-            p = p.repeat(1, patch.shape[1], 1)
+            p = p.repeat(1, patch_x.shape[1], 1)
             z = torch.cat([patch_x, p], dim=2)
             patch_x = F.relu(self.fuse_lin(z)) + patch_x
 
-        x[patch] = patch_x
-
-        return x
+        return patch_x
