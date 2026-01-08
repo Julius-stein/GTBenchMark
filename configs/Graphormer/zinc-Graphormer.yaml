@@ -97,7 +97,7 @@ optim:
   scheduler: polynomial_with_warmup
 
 perf:
-  mode: "full"
+  mode: "off"
 # optim:
 #   optimizer: adam                 
 #   base_lr: 2.0e-4

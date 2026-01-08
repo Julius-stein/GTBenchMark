@@ -1,57 +1,42 @@
-from typing import List
 import torch
-from torch_geometric.data import InMemoryDataset, Data
-from torch_geometric.utils import to_scipy_sparse_matrix
-from GTBenchmark.graphgym.config import cfg
 import copy
+from torch_geometric.data import Data
 
-def hop2token(dataset) -> InMemoryDataset:
+
+def hop2token_data(data: Data, K: int) -> Data:
     """
-    完全复刻 NAG 中 re_features 的 Hop2Token 逻辑：
-      - 不归一化 A，只做简单求和聚合
-      - 输出 data.x 形状变为 (N, K+1, d)
-    
-    Args
-    ----
-    dataset : 原始 PyG InMemoryDataset
-    K       : 传播步数（hops）
-    
-    Returns
-    -------
-    new_dataset : 与输入同类型、同切片结构，但 data.x 已替换为 Hop2Token 特征
+    Hop2Token on a single graph Data object.
+
+    - No adjacency normalization
+    - Dense adjacency matmul
+    - Output x shape: (N, K+1, d)
     """
-    processed: List[Data] = []
-    K = cfg.dataset.hop
-    for data in dataset:
-        # 克隆 data，避免修改原对象
-        data = copy.copy(data)
-        
-        x = data.x                     # (N, d)
-        N, d = x.size()
-        edge_index = data.edge_index   # (2, E)
-        device = x.device
-        
-        # —— 1. 构邻接稠密矩阵 (N, N)，保持与官方代码“dense matmul”完全一致 ——
-        adj = torch.zeros((N, N), dtype=x.dtype, device=device)
-        adj[edge_index[0], edge_index[1]] = 1.0
-        
-        # —— 2. Hop2Token 聚合 —— 
-        hop_feat = torch.zeros((N, K + 1, d), dtype=x.dtype, device=device)
-        hop_feat[:, 0, :] = x  # hop 0
-        
-        x_prop = x.clone()
-        for h in range(1, K + 1):
-            x_prop = adj @ x_prop        # 无归一化求和
-            hop_feat[:, h, :] = x_prop
-        
-        # —— 3. 写回 Data，并保存 —— 
-        data.x = hop_feat                # (N, K+1, d)
-        data.num_node_features = hop_feat.shape[-1] * (K + 1)  # 有需要再更新
-        processed.append(data)
-    
-    # —— 4. collate 回新的 InMemoryDataset —— 
-    new_data, new_slices = dataset.collate(processed)
-    new_ds = copy.copy(dataset)
-    new_ds.data, new_ds.slices = new_data, new_slices
-    # cfg.share.dim_in = 
-    return new_ds
+
+    # ---- shallow copy: keep other fields untouched ----
+    data = copy.copy(data)
+
+    x = data.x                    # (N, d)
+    edge_index = data.edge_index  # (2, E)
+    device = x.device
+    N, d = x.size()
+
+    # ---- 1. dense adjacency ----
+    adj = torch.zeros((N, N), dtype=x.dtype, device=device)
+    adj[edge_index[0], edge_index[1]] = 1.0
+
+    # ---- 2. hop aggregation ----
+    hop_feat = torch.zeros((N, K + 1, d), dtype=x.dtype, device=device)
+    hop_feat[:, 0, :] = x
+
+    x_prop = x
+    for h in range(1, K + 1):
+        x_prop = adj @ x_prop      # no normalization
+        hop_feat[:, h, :] = x_prop
+
+    # ---- 3. write back ----
+    data.x = hop_feat             # (N, K+1, d)
+
+    # 注意：不要在这里乱改 num_node_features
+    # GraphGym / encoder 会自己从 x.shape 读
+
+    return data

@@ -29,6 +29,8 @@ def dataset_cfg(cfg):
 
     cfg.dataset.add_self_loops = True
 
+    cfg.dataset.extra_loss = False
+
     # NAG preprocess
     cfg.dataset.hop = 3 
 

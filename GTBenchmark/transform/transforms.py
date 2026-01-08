@@ -1,8 +1,9 @@
 import logging
+from torch_geometric.utils import remove_self_loops, add_self_loops
+import copy
 
 import torch
 from torch_geometric.utils import subgraph
-from GTBenchmark.transform.graphormer import build_pair_store_ragged,make_collate_from_ragged
 from tqdm import tqdm
 from torch_sparse import SparseTensor
 
@@ -35,13 +36,9 @@ def pre_transform_in_memory(dataset, transform_func, show_progress=False,side=Fa
         data_list.append(data) 
 
     data_list = list(filter(None, data_list))
-    if side:
-        from GTBenchmark.utils.side_data import build_and_attach_global, global_collate
-        side = build_and_attach_global(dataset, data_list) 
-    else:
-        dataset._indices = None
-        dataset._data_list = data_list
-        dataset.data, dataset.slices = dataset.collate(data_list)
+    dataset._indices = None
+    dataset._data_list = data_list
+    dataset.data, dataset.slices = dataset.collate(data_list)
 
 
 def typecast_x(data, type_str):
@@ -122,3 +119,28 @@ def to_sparse_tensor(edge_index, edge_feat, num_nodes):
     adj_t.storage.csr2csc()
 
     return adj_t
+
+def add_self_loops_data(data):
+    """
+    Add self-loops to a single PyG Data object.
+
+    - Removes existing self-loops first
+    - Preserves edge_attr semantics
+    """
+    data = copy.copy(data)
+
+    edge_index = data.edge_index
+    edge_attr = data.edge_attr if hasattr(data, "edge_attr") else None
+
+    edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
+
+    edge_index, edge_attr = add_self_loops(
+        edge_index,
+        edge_attr=edge_attr,
+        num_nodes=data.num_nodes
+    )
+
+    data.edge_index = edge_index
+    data.edge_attr = edge_attr  # edge_attr can be None, that's OK
+
+    return data

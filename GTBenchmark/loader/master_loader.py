@@ -7,6 +7,7 @@ from torch_geometric.utils import index_to_mask
 from torch_geometric.data import Data
 from torch_geometric.loader import ClusterData 
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
 import numpy as np
 import scipy.io
@@ -36,13 +37,14 @@ from GTBenchmark.transform.posenc_stats import compute_posenc_stats
 from GTBenchmark.transform.task_preprocessing import task_specific_preprocessing
 from GTBenchmark.transform.transforms import (pre_transform_in_memory,
                                            typecast_x, concat_x_and_pos,
-                                           clip_graphs_to_size,to_sparse_tensor)
+                                           clip_graphs_to_size,to_sparse_tensor,add_self_loops_data)
+from GTBenchmark.loader.DFDataset import DenseFirstDataset
 from GTBenchmark.transform.multihop_prep import generate_multihop_adj
 from GTBenchmark.transform.dist_transforms import (add_dist_features, add_reverse_edges,
                                                  effective_resistances, 
                                                  effective_resistance_embedding,
                                                  effective_resistances_from_embedding)
-from GTBenchmark.transform.graph_partition import GraphPartitionTransform, MiniBatchFromPartition
+# from GTBenchmark.transform.graph_partition import GraphPartitionTransform, MiniBatchFromPartition
 from GTBenchmark.transform.reorder import reorder_pyg_dataset
 from GTBenchmark.transform.graph_partitionV2 import GraphPartitionTransformV2,GraphPartitionDataset
 
@@ -54,7 +56,7 @@ from GTBenchmark.loader.split_generator import (prepare_splits,
 from GTBenchmark.loader.encoding_generator import (preprocess_Node2Vec, check_Node2Vec, load_Node2Vec,
                                                  preprocess_Metapath, check_Metapath, load_Metapath,\
                                                  preprocess_KGE, check_KGE, load_KGE)
-from GTBenchmark.loader.data_preprocess import hop2token
+# from GTBenchmark.loader.data_preprocess import hop2token
 from GTBenchmark.utils.dataset_cache import load_dataset_from_cache
 
 
@@ -106,70 +108,471 @@ def even_quantile_labels(vals, nclasses, verbose=True):
             print(f'Class {class_idx}: [{interval[0]}, {interval[1]})]')
     return label
 
-
-def log_loaded_dataset(dataset, format, name):
+def log_loaded_dfdataset(ctx, data_list, format, name):
     logging.info(f"[*] Loaded dataset '{name}' from '{format}':")
-    logging.info(f"  {dataset.data}")
-    try:
-        train_idx = torch.where(dataset.data['train_mask'])[0]
-        val_idx   = torch.where(dataset.data['val_mask'])[0]
-        test_idx  = torch.where(dataset.data['test_mask'])[0]
 
-        logging.info(f"train_idx len: {len(train_idx)}, val_idx len: {len(val_idx)}, test_idx len: {len(test_idx)}")
+    # --------------------------------------------------
+    # Basic info
+    # --------------------------------------------------
+    num_graphs = len(data_list)
+    logging.info(f"  num graphs: {num_graphs}")
 
-    except:
-        pass
-    # logging.info(f"  undirected: {dataset[0].is_undirected()}")
-    logging.info(f"  num graphs: {len(dataset)}")
+    if hasattr(ctx, 'subset'):
+        logging.info(f"  subset: {ctx.subset}")
 
-    total_num_nodes = 0
-    if hasattr(dataset.data, 'num_nodes'):
-        total_num_nodes = dataset.data.num_nodes
-    elif hasattr(dataset.data, 'num_nodes_dict'):
-        total_num_nodes = sum(dataset.data.num_nodes_dict.values())
-    elif hasattr(dataset.data, 'x'):
-        total_num_nodes = dataset.data.x.size(0)
-    logging.info(f"  avg num_nodes/graph: "
-                 f"{total_num_nodes // len(dataset)}")
-    logging.info(f"  num node features: {dataset.num_node_features}")
-    logging.info(f"  num edge features: {dataset.num_edge_features}")
-    if hasattr(dataset, 'num_tasks'):
-        logging.info(f"  num tasks: {dataset.num_tasks}")
+    # --------------------------------------------------
+    # Split info (dataset-level)
+    # --------------------------------------------------
+    split = None
+    if hasattr(ctx, 'split_idx'):
+        split = ctx.split_idx
+    elif hasattr(ctx, 'split_idxs'):
+        split = ctx.split_idxs
 
-    if hasattr(dataset.data, 'y') and dataset.data.y is not None:
-        if isinstance(dataset.data.y, list):
-            # A special case for ogbg-code2 dataset.
-            logging.info(f"  num classes: n/a")
-        elif dataset.data.y.numel() == dataset.data.y.size(0) and \
-                torch.is_floating_point(dataset.data.y):
-            logging.info(f"  num classes: (appears to be a regression task)")
+    if split is not None:
+        try:
+            if isinstance(split, dict):
+                for k, v in split.items():
+                    logging.info(f"  split '{k}' size: {len(v)}")
+            elif isinstance(split, (list, tuple)):
+                names = ['train', 'val', 'test']
+                for n, v in zip(names, split):
+                    logging.info(f"  split '{n}' size: {len(v)}")
+        except Exception:
+            pass
+
+    # --------------------------------------------------
+    # Graph size statistics
+    # --------------------------------------------------
+    graph_sizes = [
+        d.num_nodes if hasattr(d, 'num_nodes') else d.x.size(0)
+        for d in data_list
+    ]
+
+    total_nodes = sum(graph_sizes)
+    avg_nodes = total_nodes / num_graphs
+
+    logging.info(f"  avg num_nodes/graph: {avg_nodes:.2f}")
+    logging.info(f"  max num_nodes: {max(graph_sizes)}")
+    logging.info(f"  min num_nodes: {min(graph_sizes)}")
+
+    # --------------------------------------------------
+    # Node / edge feature dimensions
+    # --------------------------------------------------
+    x0 = data_list[0].x
+    logging.info(f"  num node features: {x0.size(-1)}")
+
+    if hasattr(data_list[0], 'edge_attr') and data_list[0].edge_attr is not None:
+        logging.info(f"  num edge features: {data_list[0].edge_attr.size(-1)}")
+    else:
+        logging.info(f"  num edge features: 0")
+
+    # --------------------------------------------------
+    # Label / task type
+    # --------------------------------------------------
+    y0 = getattr(data_list[0], 'y', None)
+    if y0 is not None:
+        if torch.is_tensor(y0):
+            if y0.numel() == 1 and torch.is_floating_point(y0):
+                logging.info("  task type: regression")
+            elif y0.dim() == 0 or y0.numel() == 1:
+                logging.info("  task type: classification (scalar label)")
+            else:
+                logging.info(f"  label shape: {tuple(y0.shape)}")
         else:
-            logging.info(f"  num classes: {dataset.num_classes}")
-    elif hasattr(dataset.data, 'train_edge_label') or hasattr(dataset.data, 'edge_label'):
-        # Edge/link prediction task.
-        if hasattr(dataset.data, 'train_edge_label'):
-            labels = dataset.data.train_edge_label  # Transductive link task
-        else:
-            labels = dataset.data.edge_label  # Inductive link task
-        if labels.numel() == labels.size(0) and \
-                torch.is_floating_point(labels):
-            logging.info(f"  num edge classes: (probably a regression task)")
-        else:
-            logging.info(f"  num edge classes: {len(torch.unique(labels))}")
+            logging.info("  label type: non-tensor")
+    else:
+        logging.info("  label: None")
 
-    ## Show distribution of graph sizes.
-    # graph_sizes = [d.num_nodes if hasattr(d, 'num_nodes') else d.x.shape[0]
-    #                for d in dataset]
-    # hist, bin_edges = np.histogram(np.array(graph_sizes), bins=10)
-    # logging.info(f'   Graph size distribution:')
-    # logging.info(f'     mean: {np.mean(graph_sizes)}')
-    # for i, (start, end) in enumerate(zip(bin_edges[:-1], bin_edges[1:])):
-    #     logging.info(
-    #         f'     bin {i}: [{start:.2f}, {end:.2f}]: '
-    #         f'{hist[i]} ({hist[i] / hist.sum() * 100:.2f}%)'
-    #     )
+    # --------------------------------------------------
+    # Graph size distribution (important for DF)
+    # --------------------------------------------------
+    hist, bin_edges = np.histogram(
+        np.array(graph_sizes),
+        bins=10
+    )
+
+    logging.info(f"  graph size distribution:")
+    logging.info(f"    mean: {np.mean(graph_sizes):.2f}")
+    logging.info(f"    std:  {np.std(graph_sizes):.2f}")
+
+    for i, (start, end) in enumerate(zip(bin_edges[:-1], bin_edges[1:])):
+        pct = hist[i] / hist.sum() * 100 if hist.sum() > 0 else 0
+        logging.info(
+            f"    bin {i}: [{start:.1f}, {end:.1f}] "
+            f"{hist[i]} ({pct:.2f}%)"
+        )
+
+# def log_loaded_dataset(dataset, format, name):
+#     logging.info(f"[*] Loaded dataset '{name}' from '{format}':")
+#     logging.info(f"  {dataset.data}")
+#     try:
+#         train_idx = torch.where(dataset.data['train_mask'])[0]
+#         val_idx   = torch.where(dataset.data['val_mask'])[0]
+#         test_idx  = torch.where(dataset.data['test_mask'])[0]
+
+#         logging.info(f"train_idx len: {len(train_idx)}, val_idx len: {len(val_idx)}, test_idx len: {len(test_idx)}")
+
+#     except:
+#         pass
+#     # logging.info(f"  undirected: {dataset[0].is_undirected()}")
+#     logging.info(f"  num graphs: {len(dataset)}")
+
+#     total_num_nodes = 0
+#     if hasattr(dataset.data, 'num_nodes'):
+#         total_num_nodes = dataset.data.num_nodes
+#     elif hasattr(dataset.data, 'num_nodes_dict'):
+#         total_num_nodes = sum(dataset.data.num_nodes_dict.values())
+#     elif hasattr(dataset.data, 'x'):
+#         total_num_nodes = dataset.data.x.size(0)
+#     logging.info(f"  avg num_nodes/graph: "
+#                  f"{total_num_nodes // len(dataset)}")
+#     logging.info(f"  num node features: {dataset.num_node_features}")
+#     logging.info(f"  num edge features: {dataset.num_edge_features}")
+#     if hasattr(dataset, 'num_tasks'):
+#         logging.info(f"  num tasks: {dataset.num_tasks}")
+
+#     if hasattr(dataset.data, 'y') and dataset.data.y is not None:
+#         if isinstance(dataset.data.y, list):
+#             # A special case for ogbg-code2 dataset.
+#             logging.info(f"  num classes: n/a")
+#         elif dataset.data.y.numel() == dataset.data.y.size(0) and \
+#                 torch.is_floating_point(dataset.data.y):
+#             logging.info(f"  num classes: (appears to be a regression task)")
+#         else:
+#             logging.info(f"  num classes: {dataset.num_classes}")
+#     elif hasattr(dataset.data, 'train_edge_label') or hasattr(dataset.data, 'edge_label'):
+#         # Edge/link prediction task.
+#         if hasattr(dataset.data, 'train_edge_label'):
+#             labels = dataset.data.train_edge_label  # Transductive link task
+#         else:
+#             labels = dataset.data.edge_label  # Inductive link task
+#         if labels.numel() == labels.size(0) and \
+#                 torch.is_floating_point(labels):
+#             logging.info(f"  num edge classes: (probably a regression task)")
+#         else:
+#             logging.info(f"  num edge classes: {len(torch.unique(labels))}")
+
+#     # Show distribution of graph sizes.
+#     graph_sizes = [d.num_nodes if hasattr(d, 'num_nodes') else d.x.shape[0]
+#                    for d in dataset]
+#     hist, bin_edges = np.histogram(np.array(graph_sizes), bins=10)
+#     logging.info(f'   Graph size distribution:')
+#     logging.info(f'     mean: {np.mean(graph_sizes)}')
+#     for i, (start, end) in enumerate(zip(bin_edges[:-1], bin_edges[1:])):
+#         logging.info(
+#             f'     bin {i}: [{start:.2f}, {end:.2f}]: '
+#             f'{hist[i]} ({hist[i] / hist.sum() * 100:.2f}%)'
+#         )
+class DatasetCtx:
+    """
+    Lightweight container for dataset-level metadata.
+    """
+    pass
+
+def extract_dataset_ctx(dataset):
+    """
+    Extract dataset-level context from a PyG dataset object.
+
+    This function is intentionally conservative: it preserves *all*
+    dataset attributes except graph data storage.
+    """
+    ctx = DatasetCtx()
+
+    for k, v in vars(dataset).items():
+        # ---- skip heavy graph storage ----
+        if k in [
+            'data',
+            '_data',
+            'slices',
+            '_data_list',
+            '_indices',
+            'split_idx',
+            'split_idxs'
+        ]:
+            continue
+
+        # ---- skip bound methods ----
+        if callable(v):
+            continue
+
+        setattr(ctx, k, v)
+
+    # ---- normalize split fields (optional, non-destructive) ----
+    if hasattr(dataset, 'split_idx'):
+        ctx.split_idx = dataset.split_idx
+    elif hasattr(dataset, 'split_idxs'):
+        ctx.split_idx = dataset.split_idxs
+
+    return ctx
 
 @register_loader('custom_master_loader')
+def load_DFdataset_master(format,name,dataset_dir):
+    """
+    Master loader that controls loading of all datasets, overshadowing execution
+    of any default GraphGym dataset loader. Default GraphGym dataset loader are
+    instead called from this function, the format keywords `PyG` and `OGB` are
+    reserved for these default GraphGym loaders.
+
+    Custom transforms and dataset splitting is applied to each loaded dataset.
+
+    Args:
+        format: dataset format name that identifies Dataset class
+        name: dataset name to select from the class identified by `format`
+        dataset_dir: path where to store the processed dataset
+
+    Returns:
+        PyG dataset object with applied perturbation transforms and data splits
+    """
+    dataset,_ = load_dataset_from_cache(cfg)
+    if dataset is not None:
+        return dataset
+
+    use_Hetero = cfg.dataset.heteroProcess
+    if format.startswith('PyG-'):
+        pyg_dataset_id = format.split('-', 1)[1]
+        if pyg_dataset_id in ['ogbn-mag', 'mag-year']:
+            dataset_dir = osp.join(dataset_dir, 'mag')
+        else:
+            dataset_dir = osp.join(dataset_dir, pyg_dataset_id)
+        
+        if pyg_dataset_id == 'DBLP':
+            dataset = preformat_DBLP(dataset_dir)
+
+        elif pyg_dataset_id == 'IMDB':
+            dataset = preformat_IMDB(dataset_dir)
+        
+        elif pyg_dataset_id == 'OGB_MAG':
+            dataset = preformat_OGB_MAG(dataset_dir)
+
+        elif pyg_dataset_id in ['ogbn-mag', 'mag-year']:
+            dataset = preformat_MAG(dataset_dir, pyg_dataset_id)
+
+        elif pyg_dataset_id == 'OAG':
+            dataset = preformat_OAG(dataset_dir, name)
+        
+        elif pyg_dataset_id == 'Planetoid':
+            dataset = preformat_Planetoid(dataset_dir, name,use_Hetero)
+
+        elif pyg_dataset_id == 'MovieLens':
+            dataset = preformat_MovieLens(dataset_dir)
+
+        elif pyg_dataset_id == 'RCDD':
+            dataset = preformat_RCDD(dataset_dir)
+
+        elif pyg_dataset_id == 'Pokec':
+            dataset = preformat_HomoPokec(dataset_dir)
+
+        elif pyg_dataset_id == 'PDNS':
+            dataset = preformat_PDNS(dataset_dir)
+                
+        elif pyg_dataset_id == 'ZINC':
+            dataset = preformat_ZINC(dataset_dir, name)
+        
+        else:
+            raise ValueError(f"Unexpected PyG Dataset identifier: {format}")
+
+    # GraphGym default loader for Pytorch Geometric datasets
+    elif format == 'PyG':
+        dataset = load_pyg(name, dataset_dir)
+
+    elif format == 'OGB':
+        if name.startswith('ogbn') or name in ['MAG240M', 'mag-year']:
+            dataset = preformat_ogbn(dataset_dir, name)
+            # dataset = preformat_OGB_Node(dataset_dir, name.replace('_', '-'))
+
+        elif name.startswith('ogbg'):
+            dataset = preformat_OGB_Graph(dataset_dir, name.replace('_', '-'))
+
+        ### Link prediction datasets.
+        elif name.startswith('ogbl-'):
+            # GraphGym default loader.
+            dataset = load_ogb(name, dataset_dir)
+            # OGB link prediction datasets are binary classification tasks,
+            # however the default loader creates float labels => convert to int.
+            def convert_to_int(ds, prop):
+                tmp = getattr(ds.data, prop).int()
+                set_dataset_attr(ds, prop, tmp, len(tmp))
+            convert_to_int(dataset, 'train_edge_label')
+            convert_to_int(dataset, 'val_edge_label')
+            convert_to_int(dataset, 'test_edge_label')
+
+        else:
+            raise ValueError(f"Unsupported OGB(-derived) dataset: {name}")
+
+    elif format == 'IEEE-CIS':
+        dataset = preformat_IEEE_CIS(osp.join(dataset_dir, 'IEEE-CIS'))
+    else:
+        raise ValueError(f"Unknown data format: {format}")
+    
+    ctx = extract_dataset_ctx(dataset)
+    data_list = [dataset.get(i) for i in range(len(dataset))]
+
+    data_list = [task_specific_preprocessing(d, cfg=cfg) for d in data_list if d is not None]
+    log_loaded_dfdataset(ctx,data_list, format, name)
+
+    #--------------------------------------#
+    # Deep breath positional Encoding below#
+    #--------------------------------------#
+    pe_enabled_list = []
+    for key, pecfg in cfg.items():
+        if key.startswith('posenc_') and pecfg.enable:
+            pe_name = key.split('_', 1)[1]
+            pe_enabled_list.append(pe_name)
+            if hasattr(pecfg, 'kernel'):
+                # Generate kernel times if functional snippet is set.
+                if pecfg.kernel.times_func:
+                    pecfg.kernel.times = list(eval(pecfg.kernel.times_func))
+                logging.info(f"Parsed {pe_name} PE kernel times / steps: "
+                             f"{pecfg.kernel.times}")
+    if pe_enabled_list:
+
+        start = time.perf_counter()
+        logging.info(f"Precomputing Positional Encoding statistics: "
+                     f"{pe_enabled_list} for all graphs...")
+        # Estimate directedness based on 10 graphs to save time.
+        is_undirected = all(d.is_undirected() for d in dataset[:10])
+        logging.info(f"  ...estimated to be undirected: {is_undirected}")
+        data_list = [
+            compute_posenc_stats(
+                d,
+                pe_types=pe_enabled_list,
+                is_undirected=is_undirected,
+                cfg=cfg
+            )
+            for d in tqdm(
+                data_list,
+                desc=f"Applying PE",
+                total=len(data_list),
+                mininterval=1.0
+            )
+            if d is not None
+        ]
+        elapsed = time.perf_counter() - start
+        timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+                  + f'{elapsed:.2f}'[-3:]
+        logging.info(f"Done! Took {timestr}")
+
+    #-------------------------#
+    # Preprocess token choices#
+    #-------------------------#
+
+    logging.info(f"Preprocessing dataset with {cfg.dataset.preprocess} ...")
+    start = time.perf_counter()
+    if cfg.dataset.preprocess in ["None","HopToToken","Expand"]:
+        if cfg.dataset.preprocess == "None":
+            pass
+        if cfg.dataset.preprocess == "Expand":
+            from GTBenchmark.transform.expander_edges import generate_random_expander
+            for j in range(cfg.dataset.exp_count):
+                data_list = [
+                    generate_random_expander(
+                        d,
+                        degree=cfg.dataset.exp_deg,
+                        algorithm=cfg.dataset.exp_algorithm,
+                        rng=None,
+                        max_num_iters=cfg.dataset.exp_max_num_iters,
+                        exp_index=j
+                    )
+                    for d in tqdm(
+                        data_list,
+                        desc=f"Applying random expander (pass {j})",
+                        total=len(data_list),
+                        mininterval=1.0
+                    )
+                    if d is not None
+                ]
+
+
+        # if cfg.dataset.preprocess == "HopToToken":
+        #     dataset = hop2token(dataset)
+    else:
+        raise ValueError(f"Unexpect preprocess type {cfg.dataset.preprocess}.")
+    elapsed = time.perf_counter() - start
+    timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+                + f'{elapsed:.2f}'[-3:]
+    logging.info(f"Done! Took {timestr}")
+
+    if cfg.gt.rb_order > 1:
+        start = time.perf_counter()
+        logging.info(f"Generating multi-hop adjacency matrices ...")
+        data_list = [
+            generate_multihop_adj(
+                d,
+                cfg = cfg
+            )
+            for d in tqdm(
+                data_list,
+                desc=f"Generating multi-hop adjacency matrices",
+                total=len(data_list),
+                mininterval=1.0
+            )
+            if d is not None
+        ]
+        elapsed = time.perf_counter() - start
+        timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+                  + f'{elapsed:.2f}'[-3:]
+        logging.info(f"Done! Took {timestr}")
+  
+    if cfg.metis.patches > 0 and len(data_list) == 1:
+        start = time.perf_counter()
+        logging.info(f"Precomputing graph partition transform ...")
+
+        transform = GraphPartitionTransformV2(n_patches=cfg.metis.patches,
+                                            algo='metis' if cfg.metis.enable else 'random',
+                                            drop_rate=cfg.metis.drop_rate,
+                                            num_hops=cfg.metis.num_hops,
+                                            cut_type=cfg.metis.cut_type,
+                                            patch_rw_dim=cfg.metis.patch_rw_dim,
+                                            patch_num_diff=cfg.metis.patch_num_diff,
+                                            mode= cfg.metis.mode
+                                            )
+        dataset = transform(data_list[0])
+
+        
+        elapsed = time.perf_counter() - start
+        timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
+                  + f'{elapsed:.2f}'[-3:]
+        logging.info(f"Done! Took {timestr}")
+
+    if cfg.dataset.add_self_loops:
+        data_list = [
+            add_self_loops_data(d)
+            for d in tqdm(
+                data_list,
+                desc=f"adding self loops",
+                total=len(data_list),
+                mininterval=1.0
+            )
+            if d is not None]
+        
+    if cfg.dataset.extra_loss:
+        for d in tqdm(
+            data_list,
+            desc="adding extra loss",
+            total=len(data_list),
+            mininterval=1.0
+        ):
+            if d is None:
+                continue
+            d.extra_loss = torch.tensor([0.0])
+
+    dataset = DenseFirstDataset(ctx,data_list)
+
+
+
+
+    # # Precompute in-degree histogram if needed for PNAConv.
+    # if cfg.gt.layer_type.startswith('PNA') and len(cfg.gt.pna_degrees) == 0:
+    #     cfg.gt.pna_degrees = compute_indegree_histogram(
+    #         dataset[dataset.data['train_graph_index']])
+    #     # print(f"Indegrees: {cfg.gt.pna_degrees}")
+    #     # print(f"Avg:{np.mean(cfg.gt.pna_degrees)}")
+
+    return dataset
+
+
+# @register_loader('custom_master_loader')
 def load_dataset_master(format, name, dataset_dir):
     """
     Master loader that controls loading of all datasets, overshadowing execution
@@ -267,9 +670,11 @@ def load_dataset_master(format, name, dataset_dir):
         dataset = preformat_IEEE_CIS(osp.join(dataset_dir, 'IEEE-CIS'))
     else:
         raise ValueError(f"Unknown data format: {format}")
+    
+    
+
 
     pre_transform_in_memory(dataset, partial(task_specific_preprocessing, cfg=cfg))
-
     log_loaded_dataset(dataset, format, name)
 
     #--------------------------------------#
@@ -421,7 +826,7 @@ def load_dataset_master(format, name, dataset_dir):
                                         pe_types=pe_enabled_list,
                                         is_undirected=is_undirected,
                                         cfg=cfg),
-                                show_progress=True,side=True
+                                show_progress=True
                                 )
         elapsed = time.perf_counter() - start
         timestr = time.strftime('%H:%M:%S', time.gmtime(elapsed)) \
@@ -542,17 +947,21 @@ def load_dataset_master(format, name, dataset_dir):
             else:
                 data.edge_attr = edge_attr
 
+    dataset = DenseFirstDataset(dataset)
 
-    # Set standard dataset train/val/test splits
-    if hasattr(dataset, 'split_idxs'):
-        set_dataset_splits(dataset, dataset.split_idxs)
-        delattr(dataset, 'split_idxs')
+    # # Set standard dataset train/val/test splits
+    # if hasattr(dataset, 'split_idxs'):
+    #     set_dataset_splits(dataset, dataset.split_idxs)
+    #     delattr(dataset, 'split_idxs')
 
-    # # Verify or generate dataset train/val/test splits
-    prepare_splits(dataset)
+
+
+    # # # Verify or generate dataset train/val/test splits
+    # prepare_splits(dataset)
     # dataset.data['extra_loss'] = torch.Tensor([0.0])
-    for data in dataset:
-        data.extra_loss = torch.tensor([0.0])
+    # for data in dataset:
+    #     data.extra_loss = torch.tensor([0.0])
+
 
 
     # # Precompute in-degree histogram if needed for PNAConv.

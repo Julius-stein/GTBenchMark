@@ -17,8 +17,10 @@ from torch_geometric.utils import (index_to_mask, negative_sampling,
 import GTBenchmark.graphgym.register as register
 from GTBenchmark.graphgym.config import cfg
 from GTBenchmark.graphgym.models.transform import create_link_label, neg_sampling_transform
+from GTBenchmark.loader.DFDataset import DenseFirstDataset, densefirst_collate
 from yacs.config import CfgNode as CN
-
+from torch.utils.data import Subset
+from torch.utils.data import DataLoader as TorchDataloader
 
 def planetoid_dataset(name: str) -> Callable:
     return lambda root: Planetoid(root, name)
@@ -291,6 +293,93 @@ def set_dataset_info(dataset):
     
     count_degree(dataset)
 
+
+def set_dataset_info_densefirst(dataset):
+    r"""
+    Set global dataset information for Dense-First datasets.
+    Assumes:
+      - dataset.x          : [G, M, F]
+      - dataset.num_nodes  : [G]
+      - dataset.y          : [G, ...] or None
+      - dataset.index_tensors : dict (train/val/test)
+    """
+
+    # --------------------------------------------------
+    # Input feature dimension
+    # --------------------------------------------------
+    try:
+        cfg.share.dim_in = dataset.x.size(-1)
+    except Exception:
+        cfg.share.dim_in = 1
+
+    # --------------------------------------------------
+    # Edge feature dimension (optional)
+    # --------------------------------------------------
+    try:
+        if dataset.edge_attr is not None:
+            cfg.share.edge_dim_in = dataset.edge_attr[0].size(-1)
+        else:
+            cfg.share.edge_dim_in = 1
+    except Exception:
+        cfg.share.edge_dim_in = 1
+
+    # --------------------------------------------------
+    # Output dimension (y)
+    # --------------------------------------------------
+    y = getattr(dataset, "y", None)
+
+    if y is None:
+        cfg.share.dim_out = 1
+    else:
+        if not torch.is_tensor(y):
+            y = torch.as_tensor(y)
+
+        if cfg.dataset.task_type == "classification":
+            if y.dim() == 1:
+                if torch.is_floating_point(y):
+                    cfg.share.dim_out = int(torch.unique(y).numel())
+                else:
+                    cfg.share.dim_out = int(y.max().item()) + 1
+            elif y.dim() == 2:
+                cfg.share.dim_out = y.size(-1)
+            else:
+                cfg.share.dim_out = int(torch.prod(torch.tensor(y.shape[1:])).item())
+        else:  # regression
+            if y.dim() <= 1:
+                cfg.share.dim_out = 1
+            else:
+                cfg.share.dim_out = y.size(-1)
+
+    # --------------------------------------------------
+    # Split information
+    # --------------------------------------------------
+    if hasattr(dataset, "index_tensors") and dataset.index_tensors:
+        cfg.share.num_splits = len(dataset.index_tensors)
+    else:
+        cfg.share.num_splits = 1
+
+    # --------------------------------------------------
+    # Graph-level info
+    # --------------------------------------------------
+    cfg.share.side = False  # DenseFirst: no ragged slicing
+    # cfg.share.max_num_nodes = int(dataset.num_nodes.max().item())
+
+    # --------------------------------------------------
+    # Graphormer / type encoder support (optional)
+    # --------------------------------------------------
+    if "TypeDictNode" in cfg.gt.node_encoder_list:#！！！
+        # assume node type encoded in x[..., 0]
+        cfg.share.num_types = 28
+
+    # --------------------------------------------------
+    # Degree statistics (if needed)
+    # --------------------------------------------------
+    try:
+        count_degree(dataset)
+    except Exception:
+        pass
+
+
 # def set_dataset_info(dataset):
 #     r"""
 #     Set global dataset information
@@ -453,7 +542,10 @@ def create_dataset():
 
     """
     dataset = load_dataset()
-    set_dataset_info(dataset)
+    if isinstance(dataset,DenseFirstDataset):
+        set_dataset_info_densefirst(dataset)
+    else:
+        set_dataset_info(dataset)
 
     return dataset
 
@@ -545,13 +637,23 @@ def create_loader(dataset = None, shuffle = True, returnDataset = False):
 
 
     # train loader
+    # if cfg.dataset.task == 'graph':
+    #     id = dataset.data['train_graph_index']
+    #     loaders = [
+    #         get_loader(dataset[id], cfg.train.sampler, cfg.train.batch_size,
+    #                     shuffle=True)
+    #     ]
+    #     delattr(dataset.data, 'train_graph_index')
     if cfg.dataset.task == 'graph':
-        id = dataset.data['train_graph_index']
-        loaders = [
-            get_loader(dataset[id], cfg.train.sampler, cfg.train.batch_size,
-                        shuffle=True)
-        ]
-        delattr(dataset.data, 'train_graph_index')
+        train_idx = dataset.index_tensors['train']
+
+        loaders = [ TorchDataloader(
+            Subset(dataset, train_idx.tolist()),
+            batch_size=cfg.train.batch_size,
+            shuffle=True,
+            collate_fn=densefirst_collate
+        )]
+
     else:
         loaders = [
             get_loader(dataset,
@@ -566,12 +668,19 @@ def create_loader(dataset = None, shuffle = True, returnDataset = False):
     split_names = ['val', 'test']
     for i in range(cfg.share.num_splits - 1):
         if cfg.dataset.task == 'graph':
-            split_names = ['val_graph_index', 'test_graph_index']
-            id = dataset.data[split_names[i]]
-            loaders.append(
-                get_loader(dataset[id], cfg.val.sampler, cfg.train.batch_size,
-                           shuffle=shuffle))
-            delattr(dataset.data, split_names[i])
+            # split_names = ['val_graph_index', 'test_graph_index']
+            # id = dataset.data[split_names[i]]
+            # loaders.append(
+            #     get_loader(dataset[id], cfg.val.sampler, cfg.train.batch_size,
+            #                shuffle=shuffle))
+            # delattr(dataset.data, split_names[i])
+            idx = dataset.index_tensors[split_names[i]]
+
+            loaders.append(TorchDataloader(
+                Subset(dataset, idx.tolist()),
+                batch_size=cfg.train.batch_size,
+                collate_fn=densefirst_collate))
+            
         else:
             loaders.append(
                 get_loader(dataset,
