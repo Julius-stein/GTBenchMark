@@ -963,7 +963,6 @@ def load_dataset_master(format, name, dataset_dir):
     #     data.extra_loss = torch.tensor([0.0])
 
 
-
     # # Precompute in-degree histogram if needed for PNAConv.
     # if cfg.gt.layer_type.startswith('PNA') and len(cfg.gt.pna_degrees) == 0:
     #     cfg.gt.pna_degrees = compute_indegree_histogram(

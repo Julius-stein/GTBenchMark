@@ -20,11 +20,11 @@ def set_cfg_perf(cfg):
     cfg.perf.keep_latest_event_files= 2   # <=0 则不清理
 
     # 采样/写频
-    cfg.perf.scalar_every_n_steps= 50
+    cfg.perf.scalar_every_n_steps= 1
 
     # E2E
     cfg.perf.enable_e2e= True
-    cfg.perf.e2e_log_every_n_steps= 50
+    cfg.perf.e2e_log_every_n_steps= 1
     cfg.perf.ewma_alpha= 0.2              # E2E 平滑系数
 
     # 模块计时
@@ -39,7 +39,7 @@ def set_cfg_perf(cfg):
     cfg.perf.random_sampling= False
     cfg.perf.sample_prob= 0.02
     cfg.perf.random_warmup= 3
-    cfg.perf.random_active= 5
+    cfg.perf.random_active= 10
     cfg.perf.random_cooldown= 50
     cfg.perf.start_after_steps= 100
 
@@ -53,7 +53,7 @@ def set_cfg_perf(cfg):
 
     # CSV 选项
     cfg.perf.enable_csv= True
-    cfg.perf.csv_every_n_steps= 50
+    cfg.perf.csv_every_n_steps= 1
     cfg.perf.csv_filename_e2e= "e2e.csv"
     cfg.perf.csv_filename_modules= "modules.csv"
 

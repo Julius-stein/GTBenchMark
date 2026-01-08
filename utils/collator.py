@@ -129,13 +129,3 @@ def Gophormer_collator(batch, enc_dim, device):
         y=y,
         ids=torch.nested.nested_tensor(ids).to_padded_tensor(0),
     )
-
-from dataprocess.encoder import laplacian_positional_encoding, wl_positional_encoding
-import torch_geometric.data
-def GraphTransformer_collator(batch, pos_enc_dim, lap_pos_enc, wl_pos_enc):
-    for data in batch:
-        if lap_pos_enc:
-            laplacian_positional_encoding(data, pos_enc_dim)
-        if wl_pos_enc:
-            wl_positional_encoding(data)
-    return torch_geometric.data.Batch().from_data_list(batch)

@@ -247,8 +247,8 @@ class ModuleTimer:
             rows.append(f"| {i} | {n} | {mean:.6f} | {acc.ci95():.6f} | {acc.n} |")
         writer.add_text(f"{tag}/block_time/summary_ci95", "\n".join(rows), step)
 
-        writer.add_histogram(f"{tag}/block_time/hist_mean",
-                             torch.tensor([m for _, m, _ in items]), step)
+        # writer.add_histogram(f"{tag}/block_time/hist_mean",
+        #                      torch.tensor([m for _, m, _ in items]), step)
 
     def reset(self):
         self.window.clear()
@@ -291,10 +291,10 @@ class PerfMonitor:
         self.tb_suffix: str = str(_g('tb_filename_suffix', ''))
         self.keep_latest_event_files: int = int(_g('keep_latest_event_files', 2))
 
-        self.scalar_every: int = int(_g('scalar_every_n_steps', 50)) #每50步
+        self.scalar_every: int = int(_g('scalar_every_n_steps', 1)) #每50步
 
         # E2E
-        self.e2e_every: int = int(_g('e2e_log_every_n_steps', 50))
+        self.e2e_every: int = int(_g('e2e_log_every_n_steps', 1))
         self.ewma_alpha: float = float(_g('ewma_alpha', 0.2))
 
         # 模块计时
@@ -314,7 +314,7 @@ class PerfMonitor:
         self.with_modules: bool = bool(_g('with_modules', False))
 
         # CSV
-        self.csv_every: int = int(_g('csv_every_n_steps', 50))
+        self.csv_every: int = int(_g('csv_every_n_steps', 1))
         self.csv_e2e: str = str(_g('csv_filename_e2e', 'e2e.csv'))
         self.csv_modules: str = str(_g('csv_filename_modules', 'modules.csv'))
 
@@ -517,6 +517,14 @@ class PerfMonitor:
             torch.cuda.synchronize()
             total = time.perf_counter() - t0
 
+            # === GPU event section timing (no ModuleTimer required in e2e) ===
+            pending = sec_map.pop("_pending_gpu_events", None)
+            if pending:
+                for name, s_ev, e_ev in pending:
+                    ms = s_ev.elapsed_time(e_ev)  # 已 sync，安全
+                    sec_map[name] = sec_map.get(name, 0.0) + ms / 1000.0
+
+
             # （删除 section pending event 结算部分）
             # === ModuleTimer 的 pending 事件（GPU 真实执行时间）===
             if (self._module_timer is not None
@@ -556,7 +564,7 @@ class PerfMonitor:
                     w.add_scalar(f"{tag}/throughput/ewma_samples_per_sec", ew_thr, w_step)
                 for name, sec in sec_map.items():
                     w.add_scalar(f"{tag}/iter/{name}_sec", sec, w_step)
-                w.add_histogram(f"{tag}/iter/total_hist", torch.tensor([total]), w_step)
+                # w.add_histogram(f"{tag}/iter/total_hist", torch.tensor([total]), w_step)
 
             # CSV（逐步）：缓存行；等 step() 节流落盘
 
@@ -568,21 +576,62 @@ class PerfMonitor:
     @contextmanager
     def section(self, name: str):
         """
-        轻量 section 计时器（CPU 计时，无 GPU Event）
-        用于粗粒度阶段：data / forward / backward / opti
+        section 计时器：
+        - CPU: causal wall time
+        - GPU (forward/backward only): CUDA event time（延迟结算）
         """
         if not self._do_e2e:
             yield
             return
 
         t0 = time.perf_counter()
+
+        # ---------- GPU event (optional) ----------
+        use_gpu_event = (
+            name in ('forward', 'backward')
+            and torch.cuda.is_available()
+        )
+
+        if use_gpu_event:
+            start_ev = torch.cuda.Event(enable_timing=True)
+            end_ev   = torch.cuda.Event(enable_timing=True)
+            torch.cuda.current_stream().record_event(start_ev)
+            # print("device yes")
+
         try:
             yield
         finally:
+            # ---------- CPU causal time ----------
             dt = time.perf_counter() - t0
             if self._e2e_state is not None:
                 secs = self._e2e_state["secs"]
                 secs[name] = secs.get(name, 0.0) + dt
+
+            # ---------- GPU device time (deferred) ----------
+            if use_gpu_event:
+                torch.cuda.current_stream().record_event(end_ev)
+                pending = self._e2e_state["secs"].setdefault("_pending_gpu_events", [])
+                pending.append((f"{name}_device", start_ev, end_ev))
+
+
+
+    def record(self, name: str, sec: float):
+        """
+        直接向当前 iteration session 写入一个计时项（无 with）
+        适用于 dataloader / 外部等待 / Python 开销 等
+        """
+        if self._disabled:
+            return
+        if self._e2e_state is None:
+            return
+        try:
+            sec = float(sec)
+        except Exception:
+            return
+
+        secs = self._e2e_state["secs"]
+        secs[name] = secs.get(name, 0.0) + sec
+
 
     # ----------------（可选）DDP 通信计时 ----------------
     def attach_ddp_comm_timing(self, ddp_model: torch.nn.parallel.DistributedDataParallel):
