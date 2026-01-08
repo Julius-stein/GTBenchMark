@@ -1,7 +1,7 @@
 out_dir: ./results/zinc/
 metric_agg: argmin
 metric_best: mae
-num_workers: 0
+num_workers: 16
 dataset:
   dir: /mnt/data2/duxin/.datasets
   format: PyG-ZINC
@@ -17,7 +17,7 @@ dataset:
 train:
   enable_ckpt: false
   eval_period: 5
-  batch_size: 256
+  batch_size: 1000
   mode: custom
   tqdm: false
   persistent_workers: True
@@ -50,7 +50,7 @@ gt:
   head: san_graph
   # encoder_type : cascade
   node_encoder_list: ['TypeDictNode']
-  edge_encoder_list: ['TypeDictEdge']
+    #  edge_encoder_list: ['TypeDictEdge']
 
 model:
   edge_decoding: dot
@@ -59,7 +59,7 @@ model:
 optim:
   base_lr: 0.001
   clip_grad_norm: true
-  max_epoch: 2000
+  max_epoch: 20
   num_warmup_epochs: 50
   optimizer: adamW
   scheduler: cosine_with_warmup
@@ -89,4 +89,4 @@ posenc_RWSE:
   model: linear
   raw_norm_type: BatchNorm
 perf:
-  mode: "full"
+  mode: "light"

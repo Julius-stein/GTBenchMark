@@ -80,106 +80,70 @@ def train_epoch(cur_epoch, logger, loader, model, optimizer, scheduler,monitor, 
     pbar.set_description(f'Train epoch')
     model.train()
     monitor.epoch_start(tag='train')
-
-    iterator = iter(loader)
-
-
-    if cfg.model.type == 'LPModel': # Handle label propagation specially
-        # We don't need to train label propagation
-        time_start = time.time()
-        batch = next(iterator, None)
-        batch.split = 'train'
-        batch.to(torch.device(cfg.device))
-        
-        pred, true = model(batch)
-        loss, pred_score = compute_loss(pred, true)
-        _true = true.detach().to('cpu', non_blocking=True)
-        _pred = pred_score.detach().to('cpu', non_blocking=True)
-        logger.update_stats(true=_true,
-                            pred=_pred,
-                            loss=loss.detach().cpu().item(),
-                            lr=scheduler.get_last_lr()[0],
-                            time_used=time.time() - time_start,
-                            params=0,
-                            dataset_name=cfg.dataset.name)
-        pbar.update(1)
-        return
-
     optimizer.zero_grad()
     it = 0
-    time_start = time.time()
-    # with torch.autograd.set_detect_anomaly(True):
-    while True:
-        try:
-            with monitor.iteration(tag="train", batch_size=cfg.train.batch_size):
-                # torch.cuda.empty_cache() 
-                with monitor.section("data"): 
-                    batch = next(iterator, None)
-                it += 1
-                if batch == None:
-                    break
-                if isinstance(batch, Data) or isinstance(batch, HeteroData):
-                    batch.split = 'train'
-                    batch.to(torch.device(cfg.device))
-                else: # NAGphormer, HINo
-                    batch = [x.to(torch.device(cfg.device)) for x in batch]
-                                # === toggle 记录全局节点访问情况 ===
-                # global global_node_toggle
-                # global_node_toggle[batch.n_id[:batch.batch_size].cpu()] = ~global_node_toggle[batch.n_id[:batch.batch_size].cpu()]
+    prev_end = time.perf_counter()
 
-                with monitor.section("forward"), monitor.profiled_step():
-                    if cfg.gt.use_extra_loss:
-                        pred, true, extra_loss = model(batch)
-                    else:
-                        pred, true = model(batch)
+    for it, batch in enumerate(loader, start=1):
+        data_time = time.perf_counter() - prev_end
+        with monitor.iteration(tag="train", batch_size=cfg.train.batch_size):
+            monitor.record("data", data_time)
+            it += 1
+            if isinstance(batch, Data) or isinstance(batch, HeteroData):
+                batch.split = 'train'
+                batch.to(torch.device(cfg.device),non_blocking=True)
+            else: # NAGphormer, HINo
+                batch = [x.to(torch.device(cfg.device)) for x in batch]
+                            # === toggle 记录全局节点访问情况 ===
+            # global global_node_toggle
+            # global_node_toggle[batch.n_id[:batch.batch_size].cpu()] = ~global_node_toggle[batch.n_id[:batch.batch_size].cpu()]
 
-                    if cfg.model.loss_fun == 'curriculum_learning_loss':
-                        loss, pred_score = compute_loss(pred, true, cur_epoch)
-                    else:
-                        loss, pred_score = compute_loss(pred, true)
-                    if cfg.model.type == 'Collaborative':
-                        loss += extra_loss
+            with monitor.section("forward"), monitor.profiled_step():
+                if cfg.gt.use_extra_loss:
+                    pred, true, extra_loss = model(batch)
+                else:
+                    pred, true = model(batch)
 
-                _true = true.detach().to('cpu', non_blocking=True)
-                _pred = pred_score.detach().to('cpu', non_blocking=True)
-                with monitor.section("backward"):
-                    loss.backward()
+                if cfg.model.loss_fun == 'curriculum_learning_loss':
+                    loss, pred_score = compute_loss(pred, true, cur_epoch)
+                else:
+                    loss, pred_score = compute_loss(pred, true)
+                if cfg.model.type == 'Collaborative':
+                    loss += extra_loss
 
-                # print(loss.detach().cpu().item())
-                # check_grad(model)
-                # Parameters update after accumulating gradients for given num. batches.
-                with monitor.section("optimizer"):
-                    if (it % batch_accumulation == 0) or (it == len(loader)):
-                        if cfg.optim.clip_grad_norm:
-                            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.optim.clip_grad_norm_value)
-                            # print("Gradient norm:", total_norm.item())  
-                        optimizer.step()
+            _true = true.detach().to('cpu', non_blocking=True)
+            _pred = pred_score.detach().to('cpu', non_blocking=True)
+            with monitor.section("backward"):
+                loss.backward()
 
-                        # step 级调度器在这里
-                        if cfg.optim.scheduler in STEP_SCHED_NAMES:
-                            scheduler.step()
+            # print(loss.detach().cpu().item())
+            # check_grad(model)
+            # Parameters update after accumulating gradients for given num. batches.
+            with monitor.section("optimizer"):
+                if (it % batch_accumulation == 0) or (it == len(loader)):
+                    if cfg.optim.clip_grad_norm:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.optim.clip_grad_norm_value)
+                        # print("Gradient norm:", total_norm.item())  
+                    optimizer.step()
 
-                        optimizer.zero_grad()
+                    # step 级调度器在这里
+                    if cfg.optim.scheduler in STEP_SCHED_NAMES:
+                        scheduler.step()
 
+                    optimizer.zero_grad()
+            with monitor.section("metric"):
                 cfg.params = params_count(model)
                 cur_lr = optimizer.param_groups[0]['lr']
                 logger.update_stats(true=_true,
                                     pred=_pred,
                                     loss=loss.detach().cpu().item(),
                                     lr=cur_lr,
-                                    time_used=time.time() - time_start,
+                                    time_used=time.time() - prev_end,
                                     params=cfg.params,
                                     dataset_name=cfg.dataset.name)
-                pbar.update(1)
-                time_start = time.time()
-            monitor.step(tag="train")
-        except RuntimeError as e:
-            if "cannot sample n_sample <= 0 samples" in str(e):
-                print(f"Skipping batch due to error: {e}")
-                continue
-            else:
-                # If it's a different error, re-raise it
-                raise
+            pbar.update(1)
+        monitor.step(tag="train")
+        prev_end = time.perf_counter()
     monitor.epoch_end(tag='train')
 
 

@@ -102,6 +102,7 @@ def run():
         loggers = create_logger()
 
         model = create_model(dataset=dataset)
+        # model = torch.compile(model)
         if cfg.pretrained.dir:
             model = init_model_from_pretrained(
                 model, cfg.pretrained.dir, cfg.pretrained.freeze_main,

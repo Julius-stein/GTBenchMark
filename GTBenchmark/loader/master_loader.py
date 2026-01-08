@@ -42,7 +42,7 @@ from GTBenchmark.transform.dist_transforms import (add_dist_features, add_revers
                                                  effective_resistances, 
                                                  effective_resistance_embedding,
                                                  effective_resistances_from_embedding)
-from GTBenchmark.transform.graph_partition import GraphPartitionTransform, MiniBatchFromPartition
+# from GTBenchmark.transform.graph_partition import GraphPartitionTransform, MiniBatchFromPartition
 from GTBenchmark.transform.reorder import reorder_pyg_dataset
 from GTBenchmark.transform.graph_partitionV2 import GraphPartitionTransformV2,GraphPartitionDataset
 
@@ -551,8 +551,8 @@ def load_dataset_master(format, name, dataset_dir):
     # # Verify or generate dataset train/val/test splits
     prepare_splits(dataset)
     # dataset.data['extra_loss'] = torch.Tensor([0.0])
-    for data in dataset:
-        data.extra_loss = torch.tensor([0.0])
+    # for data in dataset:
+    #     data.extra_loss = torch.tensor([0.0])
 
 
     # # Precompute in-degree histogram if needed for PNAConv.
